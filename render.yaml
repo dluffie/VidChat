@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: videoshare-server
+    runtime: node
+    plan: free
+    region: oregon
+    rootDir: videoshare/server
+    buildCommand: npm install && npm run build
+    startCommand: npm run start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: MONGODB_URI
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: STUN_URL
+        value: stun:stun.l.google.com:19302
