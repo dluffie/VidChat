@@ -1,22 +1,35 @@
+import * as FileSystem from 'expo-file-system';
 import { base64ToUint8Array, uint8ArrayToBase64 } from '../utils/encoding';
 import { calculateSHA256 } from './hashing';
 
 // In-memory or filesystem storage abstraction
-const chunkStorage = new Map<string, Map<number, string>>(); // transferId -> (chunkIndex -> base64Data)
 const assembledFiles = new Map<string, Uint8Array>(); // filePath -> binaryData
 
 export class FileSystemService {
-  private static basePath = '/VideoShare/transfers';
-  private static downloadPath = '/VideoShare/downloads';
+  private static get basePath(): string {
+    const docDir = FileSystem.documentDirectory || '';
+    return docDir.endsWith('/') ? `${docDir}VideoShare/transfers/` : `${docDir}/VideoShare/transfers/`;
+  }
+
+  private static get downloadPath(): string {
+    const docDir = FileSystem.documentDirectory || '';
+    return docDir.endsWith('/') ? `${docDir}VideoShare/downloads/` : `${docDir}/VideoShare/downloads/`;
+  }
+
+  private static getTransferDir(transferId: string): string {
+    const base = this.basePath;
+    return base.endsWith('/') ? `${base}${transferId}` : `${base}/${transferId}`;
+  }
 
   /**
    * Initializes the temporary directory for incoming video chunks
    * e.g. /VideoShare/transfers/{transferId}/
    */
   static async initTransferDirectory(transferId: string): Promise<string> {
-    const dir = `${this.basePath}/${transferId}`;
-    if (!chunkStorage.has(transferId)) {
-      chunkStorage.set(transferId, new Map());
+    const dir = this.getTransferDir(transferId);
+    const info = await FileSystem.getInfoAsync(dir);
+    if (!info.exists) {
+      await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
     }
     return dir;
   }
@@ -30,29 +43,55 @@ export class FileSystemService {
     chunkIndex: number,
     base64Data: string
   ): Promise<void> {
-    if (!chunkStorage.has(transferId)) {
-      chunkStorage.set(transferId, new Map());
+    const dir = this.getTransferDir(transferId);
+    const dirInfo = await FileSystem.getInfoAsync(dir);
+    if (!dirInfo.exists) {
+      await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
     }
-    const chunks = chunkStorage.get(transferId)!;
-    chunks.set(chunkIndex, base64Data);
+    const padded = String(chunkIndex).padStart(6, '0');
+    const chunkPath = `${dir}/chunk_${padded}`;
+    await FileSystem.writeAsStringAsync(chunkPath, base64Data, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
   }
 
   /**
    * Reads a single saved chunk
    */
   static async readChunk(transferId: string, chunkIndex: number): Promise<string | null> {
-    const chunks = chunkStorage.get(transferId);
-    if (!chunks) return null;
-    return chunks.get(chunkIndex) || null;
+    const padded = String(chunkIndex).padStart(6, '0');
+    const chunkPath = `${this.getTransferDir(transferId)}/chunk_${padded}`;
+    try {
+      const info = await FileSystem.getInfoAsync(chunkPath);
+      if (!info.exists) return null;
+      return await FileSystem.readAsStringAsync(chunkPath, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+    } catch {
+      return null;
+    }
   }
 
   /**
    * Returns a list of chunk indices that have been successfully saved for this transfer
    */
   static async getSavedChunkIndices(transferId: string): Promise<number[]> {
-    const chunks = chunkStorage.get(transferId);
-    if (!chunks) return [];
-    return Array.from(chunks.keys()).sort((a, b) => a - b);
+    const dir = this.getTransferDir(transferId);
+    try {
+      const info = await FileSystem.getInfoAsync(dir);
+      if (!info.exists) return [];
+      const files = await FileSystem.readDirectoryAsync(dir);
+      const indices: number[] = [];
+      for (const file of files) {
+        const match = file.match(/^chunk_(\d+)$/);
+        if (match) {
+          indices.push(parseInt(match[1], 10));
+        }
+      }
+      return indices.sort((a, b) => a - b);
+    } catch {
+      return [];
+    }
   }
 
   /**
@@ -64,9 +103,10 @@ export class FileSystemService {
     fileName: string,
     totalChunks: number
   ): Promise<{ filePath: string; reconstructedHash: string; byteLength: number }> {
-    const chunks = chunkStorage.get(transferId);
-    if (!chunks || chunks.size !== totalChunks) {
-      throw new Error(`Cannot reassemble: expected ${totalChunks} chunks, found ${chunks?.size || 0}`);
+    const dir = this.getTransferDir(transferId);
+    const savedIndices = await this.getSavedChunkIndices(transferId);
+    if (savedIndices.length !== totalChunks) {
+      throw new Error(`Cannot reassemble: expected ${totalChunks} chunks, found ${savedIndices.length}`);
     }
 
     // Determine total byte length by summing individual decoded chunks
@@ -74,7 +114,11 @@ export class FileSystemService {
     let totalBytes = 0;
 
     for (let i = 0; i < totalChunks; i++) {
-      const b64 = chunks.get(i);
+      const padded = String(i).padStart(6, '0');
+      const chunkPath = `${dir}/chunk_${padded}`;
+      const b64 = await FileSystem.readAsStringAsync(chunkPath, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
       if (!b64) {
         throw new Error(`Missing chunk #${i} during reassembly`);
       }
@@ -92,7 +136,18 @@ export class FileSystemService {
     }
 
     const reconstructedHash = calculateSHA256(finalVideo);
-    const destPath = `${this.downloadPath}/${fileName}`;
+
+    const downloadDir = this.downloadPath;
+    const downloadDirInfo = await FileSystem.getInfoAsync(downloadDir);
+    if (!downloadDirInfo.exists) {
+      await FileSystem.makeDirectoryAsync(downloadDir, { intermediates: true });
+    }
+
+    const destPath = `${downloadDir}${fileName}`;
+    const base64Video = uint8ArrayToBase64(finalVideo);
+    await FileSystem.writeAsStringAsync(destPath, base64Video, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
 
     assembledFiles.set(destPath, finalVideo);
 
@@ -107,13 +162,32 @@ export class FileSystemService {
    * Cleans up temporary chunk files after successful verification or cancellation
    */
   static async cleanupTransferChunks(transferId: string): Promise<void> {
-    chunkStorage.delete(transferId);
+    const dir = this.getTransferDir(transferId);
+    try {
+      const info = await FileSystem.getInfoAsync(dir);
+      if (info.exists) {
+        await FileSystem.deleteAsync(dir, { idempotent: true });
+      }
+    } catch (err) {
+      console.warn(`[FileSystemService] Failed to cleanup transfer chunks:`, err);
+    }
   }
 
   /**
    * Gets reconstructed file bytes for playback or export
    */
   static async getFile(filePath: string): Promise<Uint8Array | null> {
+    try {
+      const info = await FileSystem.getInfoAsync(filePath);
+      if (info.exists) {
+        const b64 = await FileSystem.readAsStringAsync(filePath, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+        return base64ToUint8Array(b64);
+      }
+    } catch {
+      // Fallback
+    }
     return assembledFiles.get(filePath) || null;
   }
 

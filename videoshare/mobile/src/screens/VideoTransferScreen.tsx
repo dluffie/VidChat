@@ -11,6 +11,7 @@ import {
 import { useTransferStore } from '../store/transferStore';
 import { formatBytes, formatSpeed } from '../utils/chunking';
 import { calculateEncodedSize, calculateOverheadRatio } from '../utils/encoding';
+import { Video, ResizeMode } from 'expo-av';
 
 interface VideoTransferScreenProps {
   route: any;
@@ -51,7 +52,15 @@ export const VideoTransferScreen: React.FC<VideoTransferScreenProps> = ({ route,
 
         {/* Video Player Display Area */}
         <View style={styles.videoPlayerBox}>
-          {isPlaying ? (
+          {transfer.status === 'completed' && transfer.localFilePath ? (
+            <Video
+              source={{ uri: transfer.localFilePath }}
+              style={{ width: '100%', height: 220 }}
+              useNativeControls
+              resizeMode={ResizeMode.CONTAIN}
+              shouldPlay={false}
+            />
+          ) : isPlaying ? (
             <View style={styles.playingState}>
               <Text style={styles.playingIcon}>🎬</Text>
               <Text style={styles.playingTitle}>Playing: {transfer.fileName}</Text>

@@ -19,6 +19,9 @@ import { VideoTransferService, PreProcessedVideo } from '../services/videoTransf
 import { useTransferStore } from '../store/transferStore';
 import { PairCode } from '../components/PairCode';
 import { DeviceStorageInfo } from '../types/pairing';
+import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system';
+import { base64ToUint8Array } from '../utils/encoding';
 
 interface PairScreenProps {
   route: any;
@@ -56,6 +59,8 @@ export const PairScreen: React.FC<PairScreenProps> = ({ route, navigation }) => 
   const [customFileName, setCustomFileName] = useState<string>('');
   const [customSizeMb, setCustomSizeMb] = useState<string>('10');
   const [isCustomMode, setIsCustomMode] = useState<boolean>(false);
+  const [pickedVideoFile, setPickedVideoFile] = useState<{ uri: string; name: string; size: number } | null>(null);
+  const [pickedBinaryData, setPickedBinaryData] = useState<Uint8Array | null>(null);
 
   // Pre-Processing State
   const [isPreProcessing, setIsPreProcessing] = useState<boolean>(false);
@@ -152,24 +157,34 @@ export const PairScreen: React.FC<PairScreenProps> = ({ route, navigation }) => 
     setPreProcessStep('Initializing file binary...');
 
     try {
-      const fileName = isCustomMode
-        ? customFileName.trim() || 'custom_video.mp4'
-        : SAMPLE_PRESETS[selectedPresetIndex].name;
-      const sizeMb = isCustomMode
-        ? parseFloat(customSizeMb) || 10
-        : SAMPLE_PRESETS[selectedPresetIndex].sizeMb;
-      const sizeInBytes = Math.floor(sizeMb * 1024 * 1024);
+      let fileName: string;
+      let binaryData: Uint8Array;
+      let mimeType: string = 'video/mp4';
 
-      // 1. Prepare video binary data
-      setPreProcessStep('Preparing video stream data...');
-      setPreProcessProgress(10);
-      const mockVideo = FileSystemService.createMockVideo(fileName, sizeInBytes);
+      if (pickedVideoFile && pickedBinaryData) {
+        fileName = pickedVideoFile.name;
+        binaryData = pickedBinaryData;
+      } else {
+        fileName = isCustomMode
+          ? customFileName.trim() || 'custom_video.mp4'
+          : SAMPLE_PRESETS[selectedPresetIndex].name;
+        const sizeMb = isCustomMode
+          ? parseFloat(customSizeMb) || 10
+          : SAMPLE_PRESETS[selectedPresetIndex].sizeMb;
+        const sizeInBytes = Math.floor(sizeMb * 1024 * 1024);
+
+        // 1. Prepare video binary data
+        setPreProcessStep('Preparing video stream data...');
+        setPreProcessProgress(10);
+        const mockVideo = FileSystemService.createMockVideo(fileName, sizeInBytes);
+        binaryData = mockVideo.data;
+      }
 
       // 2. Pre-process: Slicing chunks, Base64 text-safe encoding, and SHA-256 calculation
       const preprocessed = await VideoTransferService.preProcessVideo(
         fileName,
-        mockVideo.data,
-        'video/mp4',
+        binaryData,
+        mimeType,
         64 * 1024,
         (progress, step) => {
           setPreProcessProgress(progress);
@@ -189,6 +204,71 @@ export const PairScreen: React.FC<PairScreenProps> = ({ route, navigation }) => 
     } catch (err: any) {
       setIsPreProcessing(false);
       setError(err.message || 'Pre-processing or pairing code generation failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /**
+   * SENDER: Pick Real Video from device storage
+   */
+  const handlePickRealVideo = async () => {
+    try {
+      setError(null);
+      const result = await DocumentPicker.getDocumentAsync({
+        type: 'video/*',
+        copyToCacheDirectory: true,
+      });
+
+      if (result.canceled || !result.assets || result.assets.length === 0) {
+        return;
+      }
+
+      const asset = result.assets[0];
+      const fileName = asset.name || 'selected_video.mp4';
+      const uri = asset.uri;
+
+      setIsPreProcessing(true);
+      setPreProcessProgress(5);
+      setPreProcessStep('Reading selected video from device storage...');
+
+      const base64Data = await FileSystem.readAsStringAsync(uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      const binaryData = base64ToUint8Array(base64Data);
+      const actualSize = asset.size || binaryData.byteLength;
+
+      setPickedVideoFile({
+        uri,
+        name: fileName,
+        size: actualSize,
+      });
+      setPickedBinaryData(binaryData);
+      setIsCustomMode(false);
+
+      // Proceed with preProcessVideo flow
+      const preprocessed = await VideoTransferService.preProcessVideo(
+        fileName,
+        binaryData,
+        asset.mimeType || 'video/mp4',
+        64 * 1024,
+        (progress, step) => {
+          setPreProcessProgress(progress);
+          setPreProcessStep(step);
+        }
+      );
+
+      setPreProcessedVideo(preprocessed);
+      setPreProcessProgress(100);
+      setPreProcessStep('Pre-processing complete ✓ Requesting 6-digit code...');
+
+      setLoading(true);
+      const res = await PairingService.createPair();
+      setPairingCode(res.pairingCode);
+      setIsPreProcessing(false);
+    } catch (err: any) {
+      setIsPreProcessing(false);
+      setError(err.message || 'Failed to read or pre-process selected video');
     } finally {
       setLoading(false);
     }
@@ -240,6 +320,8 @@ export const PairScreen: React.FC<PairScreenProps> = ({ route, navigation }) => 
     setStorageCheckResult(null);
     setPairingCode('');
     setPreProcessedVideo(null);
+    setPickedVideoFile(null);
+    setPickedBinaryData(null);
     setIsSuccess(false);
     navigation.goBack();
   };
@@ -338,7 +420,7 @@ export const PairScreen: React.FC<PairScreenProps> = ({ route, navigation }) => 
 
                   <Text style={styles.presetLabel}>Choose Sample Video Preset:</Text>
                   {SAMPLE_PRESETS.map((preset, index) => {
-                    const isSelected = !isCustomMode && selectedPresetIndex === index;
+                    const isSelected = !isCustomMode && !pickedVideoFile && selectedPresetIndex === index;
                     return (
                       <TouchableOpacity
                         key={preset.name}
@@ -346,6 +428,8 @@ export const PairScreen: React.FC<PairScreenProps> = ({ route, navigation }) => 
                         activeOpacity={0.8}
                         onPress={() => {
                           setIsCustomMode(false);
+                          setPickedVideoFile(null);
+                          setPickedBinaryData(null);
                           setSelectedPresetIndex(index);
                         }}
                       >
@@ -365,11 +449,41 @@ export const PairScreen: React.FC<PairScreenProps> = ({ route, navigation }) => 
                     );
                   })}
 
+                  {/* Pick Real Video Option */}
+                  <TouchableOpacity
+                    style={[styles.presetCard, pickedVideoFile && !isCustomMode && styles.presetCardSelected]}
+                    activeOpacity={0.8}
+                    onPress={handlePickRealVideo}
+                  >
+                    <View style={styles.presetLeft}>
+                      <Text style={styles.presetIcon}>📱</Text>
+                      <View style={{ flex: 1, paddingRight: 8 }}>
+                        <Text style={styles.presetName}>
+                          {pickedVideoFile ? `Picked: ${pickedVideoFile.name}` : 'Pick Real Video'}
+                        </Text>
+                        <Text style={styles.presetDetails}>
+                          {pickedVideoFile
+                            ? `${(pickedVideoFile.size / (1024 * 1024)).toFixed(1)} MB • Real device video`
+                            : 'Select video from device gallery or files'}
+                        </Text>
+                      </View>
+                    </View>
+                    <View style={[styles.presetSizeBadge, pickedVideoFile ? { backgroundColor: '#064E3B' } : undefined]}>
+                      <Text style={styles.presetSizeText}>
+                        {pickedVideoFile ? `${(pickedVideoFile.size / (1024 * 1024)).toFixed(1)} MB` : 'Browse 📂'}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+
                   {/* Custom Video Option */}
                   <TouchableOpacity
                     style={[styles.presetCard, isCustomMode && styles.presetCardSelected]}
                     activeOpacity={0.8}
-                    onPress={() => setIsCustomMode(true)}
+                    onPress={() => {
+                      setIsCustomMode(true);
+                      setPickedVideoFile(null);
+                      setPickedBinaryData(null);
+                    }}
                   >
                     <View style={styles.presetLeft}>
                       <Text style={styles.presetIcon}>📁</Text>
