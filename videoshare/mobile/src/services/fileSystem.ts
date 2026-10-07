@@ -1,4 +1,4 @@
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { base64ToUint8Array, uint8ArrayToBase64 } from '../utils/encoding';
 import { calculateSHA256 } from './hashing';
 

@@ -20,7 +20,7 @@ import { useTransferStore } from '../store/transferStore';
 import { PairCode } from '../components/PairCode';
 import { DeviceStorageInfo } from '../types/pairing';
 import * as DocumentPicker from 'expo-document-picker';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { base64ToUint8Array } from '../utils/encoding';
 
 interface PairScreenProps {
