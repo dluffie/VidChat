@@ -15,6 +15,7 @@
     "crypto-js": "^4.2.0",
     "expo": "~57.0.0",
     "expo-av": "~15.1.4",
+    "expo-crypto": "~57.0.3",
     "expo-document-picker": "~57.0.3",
     "expo-file-system": "~57.0.7",
     "expo-linking": "~57.0.12",

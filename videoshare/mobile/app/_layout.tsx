@@ -1,3 +1,5 @@
+// Must be first import — patches globalThis.crypto for uuid / Hermes compatibility
+import '../src/utils/polyfills';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';

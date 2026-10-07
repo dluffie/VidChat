@@ -11,7 +11,19 @@ import {
 import { useTransferStore } from '../store/transferStore';
 import { formatBytes, formatSpeed } from '../utils/chunking';
 import { calculateEncodedSize, calculateOverheadRatio } from '../utils/encoding';
-import { Video, ResizeMode } from 'expo-av';
+
+// expo-av requires a custom dev build (native module ExponentAV).
+// Guard the import so the screen works in Expo Go without crashing.
+let Video: any = null;
+let ResizeMode: any = { CONTAIN: 'contain' };
+try {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const av = require('expo-av');
+  Video = av.Video;
+  ResizeMode = av.ResizeMode;
+} catch {
+  // expo-av native module not available (Expo Go); Video stays null
+}
 
 interface VideoTransferScreenProps {
   route: any;
@@ -53,13 +65,24 @@ export const VideoTransferScreen: React.FC<VideoTransferScreenProps> = ({ route,
         {/* Video Player Display Area */}
         <View style={styles.videoPlayerBox}>
           {transfer.status === 'completed' && transfer.localFilePath ? (
-            <Video
-              source={{ uri: transfer.localFilePath }}
-              style={{ width: '100%', height: 220 }}
-              useNativeControls
-              resizeMode={ResizeMode.CONTAIN}
-              shouldPlay={false}
-            />
+            Video ? (
+              <Video
+                source={{ uri: transfer.localFilePath }}
+                style={{ width: '100%', height: 220 }}
+                useNativeControls
+                resizeMode={ResizeMode.CONTAIN}
+                shouldPlay={false}
+              />
+            ) : (
+              // Fallback when ExponentAV native module is unavailable (Expo Go)
+              <View style={styles.avFallback}>
+                <Text style={styles.avFallbackIcon}>🎬</Text>
+                <Text style={styles.avFallbackTitle}>Video ready: {transfer.fileName}</Text>
+                <Text style={styles.avFallbackSub}>
+                  Playback requires a custom dev build (expo-av native module).
+                </Text>
+              </View>
+            )
           ) : isPlaying ? (
             <View style={styles.playingState}>
               <Text style={styles.playingIcon}>🎬</Text>
@@ -359,5 +382,27 @@ const styles = StyleSheet.create({
     color: '#38BDF8',
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     fontSize: 11,
+  },
+  // Fallback shown when expo-av native module is unavailable (Expo Go)
+  avFallback: {
+    alignItems: 'center',
+    padding: 16,
+  },
+  avFallbackIcon: {
+    fontSize: 40,
+    marginBottom: 8,
+  },
+  avFallbackTitle: {
+    color: '#10B981',
+    fontSize: 14,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginBottom: 6,
+  },
+  avFallbackSub: {
+    color: '#64748B',
+    fontSize: 11,
+    textAlign: 'center',
+    lineHeight: 16,
   },
 });
