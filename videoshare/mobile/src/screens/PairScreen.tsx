@@ -11,14 +11,14 @@ import {
   Platform,
   ScrollView,
 } from 'react-native';
-import { PairingService } from '../services/pairing.js';
-import { WebSocketClient } from '../services/websocket.js';
-import { StorageService } from '../services/storage.js';
-import { FileSystemService } from '../services/fileSystem.js';
-import { VideoTransferService, PreProcessedVideo } from '../services/videoTransfer.js';
-import { useTransferStore } from '../store/transferStore.js';
-import { PairCode } from '../components/PairCode.js';
-import { DeviceStorageInfo } from '../types/pairing.js';
+import { PairingService } from '../services/pairing';
+import { WebSocketClient } from '../services/websocket';
+import { StorageService } from '../services/storage';
+import { FileSystemService } from '../services/fileSystem';
+import { VideoTransferService, PreProcessedVideo } from '../services/videoTransfer';
+import { useTransferStore } from '../store/transferStore';
+import { PairCode } from '../components/PairCode';
+import { DeviceStorageInfo } from '../types/pairing';
 
 interface PairScreenProps {
   route: any;

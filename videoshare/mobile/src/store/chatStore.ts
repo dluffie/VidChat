@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { ChatMessage, MessageStatus } from '../types/messages.js';
+import { ChatMessage, MessageStatus } from '../types/messages';
 
 export interface ChatState {
   messages: ChatMessage[];

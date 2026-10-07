@@ -1,7 +1,5 @@
-import { NativeModules, Platform } from 'react-native';
-import { DeviceStorageInfo } from '../types/pairing.js';
-
-const { StorageModule } = NativeModules;
+import * as FileSystem from 'expo-file-system';
+import { DeviceStorageInfo } from '../types/pairing';
 
 export class StorageService {
   private static simulatedFreeBytes: number | null = null;
@@ -21,6 +19,7 @@ export class StorageService {
 
   /**
    * Retrieves device storage info (free space and total storage capacity)
+   * Uses expo-file-system APIs — works on both iOS and Android without native modules.
    */
   static async getStorageInfo(): Promise<DeviceStorageInfo> {
     if (this.simulatedFreeBytes !== null) {
@@ -33,19 +32,21 @@ export class StorageService {
     }
 
     try {
-      if (StorageModule && typeof StorageModule.getStorageInfo === 'function') {
-        const nativeInfo = await StorageModule.getStorageInfo();
-        if (nativeInfo && nativeInfo.freeBytes !== undefined) {
-          return {
-            freeBytes: nativeInfo.freeBytes,
-            totalBytes: nativeInfo.totalBytes || this.defaultTotalBytes,
-            freeFormatted: this.formatBytes(nativeInfo.freeBytes),
-            totalFormatted: this.formatBytes(nativeInfo.totalBytes || this.defaultTotalBytes),
-          };
-        }
+      const [freeBytes, totalBytes] = await Promise.all([
+        FileSystem.getFreeDiskStorageAsync(),
+        FileSystem.getTotalDiskCapacityAsync(),
+      ]);
+
+      if (freeBytes != null && totalBytes != null) {
+        return {
+          freeBytes,
+          totalBytes,
+          freeFormatted: this.formatBytes(freeBytes),
+          totalFormatted: this.formatBytes(totalBytes),
+        };
       }
     } catch (e) {
-      console.warn('Native storage query failed, falling back to simulated storage:', e);
+      console.warn('expo-file-system storage query failed, falling back to defaults:', e);
     }
 
     // Default realistic storage for mobile device

@@ -1,4 +1,4 @@
-import { WS_URL } from './api.js';
+import { WS_URL } from './api';
 
 type Listener = (payload: any) => void;
 

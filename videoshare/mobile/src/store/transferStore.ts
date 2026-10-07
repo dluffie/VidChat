@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { TransferProgress } from '../types/transfers.js';
+import { TransferProgress } from '../types/transfers';
 
 export interface TransferState {
   transfers: Record<string, TransferProgress>;

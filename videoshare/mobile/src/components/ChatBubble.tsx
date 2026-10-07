@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { ChatMessage } from '../types/messages.js';
+import { ChatMessage } from '../types/messages';
 
 interface ChatBubbleProps {
   message: ChatMessage;

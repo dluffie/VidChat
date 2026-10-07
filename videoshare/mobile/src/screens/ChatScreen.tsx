@@ -11,18 +11,18 @@ import {
   Platform,
   Modal,
 } from 'react-native';
-import { ChatBubble } from '../components/ChatBubble.js';
-import { VideoBubble } from '../components/VideoBubble.js';
-import { MessageClientService } from '../services/messages.js';
-import { VideoTransferService } from '../services/videoTransfer.js';
-import { PairingService } from '../services/pairing.js';
-import { WebSocketClient } from '../services/websocket.js';
-import { FileSystemService } from '../services/fileSystem.js';
-import { useChatStore } from '../store/chatStore.js';
-import { useConnectionStore } from '../store/connectionStore.js';
-import { useTransferStore } from '../store/transferStore.js';
-import { CHUNK_SIZES, DEFAULT_CHUNK_SIZE, formatBytes } from '../utils/chunking.js';
-import { ChatMessage } from '../types/messages.js';
+import { ChatBubble } from '../components/ChatBubble';
+import { VideoBubble } from '../components/VideoBubble';
+import { MessageClientService } from '../services/messages';
+import { VideoTransferService } from '../services/videoTransfer';
+import { PairingService } from '../services/pairing';
+import { WebSocketClient } from '../services/websocket';
+import { FileSystemService } from '../services/fileSystem';
+import { useChatStore } from '../store/chatStore';
+import { useConnectionStore } from '../store/connectionStore';
+import { useTransferStore } from '../store/transferStore';
+import { CHUNK_SIZES, DEFAULT_CHUNK_SIZE, formatBytes } from '../utils/chunking';
+import { ChatMessage } from '../types/messages';
 
 interface ChatScreenProps {
   navigation: any;

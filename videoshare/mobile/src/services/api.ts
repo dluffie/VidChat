@@ -1,15 +1,15 @@
 // Environment-based API and WebSocket URLs
 // For production, replace these with your deployed Render URL.
-// In dev mode, 10.0.2.2 is the Android emulator's alias for localhost.
+// In dev mode with Expo Go, use 'localhost' (Metro tunnels it for both Android & iOS).
 // For a physical device on the same LAN, use your machine's local IP (e.g. 192.168.x.x).
 
-const DEV_API_URL = 'http://10.0.2.2:3000';
-const PROD_API_URL = 'https://your-render-app.onrender.com'; // TODO: replace before shipping
+const DEV_API_URL = 'http://localhost:3000';
+const PROD_API_URL = 'https://vidchat-6pdb.onrender.com';
 
 export const API_URL = __DEV__ ? DEV_API_URL : PROD_API_URL;
 export const WS_URL = __DEV__
-  ? 'ws://10.0.2.2:3000/ws'
-  : 'wss://your-render-app.onrender.com/ws'; // TODO: replace before shipping
+  ? 'ws://localhost:3000/ws'
+  : 'wss://vidchat-6pdb.onrender.com/ws';
 
 export class ApiService {
   private static baseUrl = API_URL;

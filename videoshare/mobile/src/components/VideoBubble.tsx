@@ -1,8 +1,8 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
-import { ProgressBar } from './ProgressBar.js';
-import { TransferProgress } from '../types/transfers.js';
-import { formatBytes } from '../utils/chunking.js';
+import { ProgressBar } from './ProgressBar';
+import { TransferProgress } from '../types/transfers';
+import { formatBytes } from '../utils/chunking';
 
 interface VideoBubbleProps {
   progress: TransferProgress;

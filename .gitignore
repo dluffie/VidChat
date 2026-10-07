@@ -5,10 +5,17 @@ dist/
 .DS_Store
 Thumbs.db
 
-# React Native
-android/app/build/
-ios/build/
-ios/Pods/
+# Expo
+.expo/
+expo-env.d.ts
+
+# Build outputs
 *.apk
 *.aab
 *.ipa
+ios/build/
+ios/Pods/
+android/app/build/
+
+# React Native (bare workflow remnants)
+react-native.config.js

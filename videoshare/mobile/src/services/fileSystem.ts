@@ -1,5 +1,5 @@
-import { base64ToUint8Array, uint8ArrayToBase64 } from '../utils/encoding.js';
-import { calculateSHA256 } from './hashing.js';
+import { base64ToUint8Array, uint8ArrayToBase64 } from '../utils/encoding';
+import { calculateSHA256 } from './hashing';
 
 // In-memory or filesystem storage abstraction
 const chunkStorage = new Map<string, Map<number, string>>(); // transferId -> (chunkIndex -> base64Data)

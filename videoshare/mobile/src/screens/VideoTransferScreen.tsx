@@ -8,9 +8,9 @@ import {
   SafeAreaView,
   Platform,
 } from 'react-native';
-import { useTransferStore } from '../store/transferStore.js';
-import { formatBytes, formatSpeed } from '../utils/chunking.js';
-import { calculateEncodedSize, calculateOverheadRatio } from '../utils/encoding.js';
+import { useTransferStore } from '../store/transferStore';
+import { formatBytes, formatSpeed } from '../utils/chunking';
+import { calculateEncodedSize, calculateOverheadRatio } from '../utils/encoding';
 
 interface VideoTransferScreenProps {
   route: any;

@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView } from 'react-native';
-import { PairingService } from '../services/pairing.js';
-import { WebSocketClient } from '../services/websocket.js';
-import { StorageService } from '../services/storage.js';
-import { useConnectionStore } from '../store/connectionStore.js';
-import { DeviceStorageInfo } from '../types/pairing.js';
+import { PairingService } from '../services/pairing';
+import { WebSocketClient } from '../services/websocket';
+import { StorageService } from '../services/storage';
+import { useConnectionStore } from '../store/connectionStore';
+import { DeviceStorageInfo } from '../types/pairing';
 
 interface HomeScreenProps {
   navigation: any;

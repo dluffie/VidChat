@@ -1,11 +1,11 @@
 import { v4 as uuidv4 } from 'uuid';
-import { WebSocketClient } from './websocket.js';
-import { PairingService } from './pairing.js';
-import { FileSystemService } from './fileSystem.js';
-import { calculateSHA256, verifyChecksum } from './hashing.js';
-import { uint8ArrayToBase64, calculateEncodedSize, calculateOverheadRatio } from '../utils/encoding.js';
-import { DEFAULT_CHUNK_SIZE, calculateTotalChunks, findMissingChunks } from '../utils/chunking.js';
-import { VideoTransferMeta, VideoChunk, TransferProgress, TransferMetrics } from '../types/transfers.js';
+import { WebSocketClient } from './websocket';
+import { PairingService } from './pairing';
+import { FileSystemService } from './fileSystem';
+import { calculateSHA256, verifyChecksum } from './hashing';
+import { uint8ArrayToBase64, calculateEncodedSize, calculateOverheadRatio } from '../utils/encoding';
+import { DEFAULT_CHUNK_SIZE, calculateTotalChunks, findMissingChunks } from '../utils/chunking';
+import { VideoTransferMeta, VideoChunk, TransferProgress, TransferMetrics } from '../types/transfers';
 
 export interface VideoTransferCallbacks {
   onProgress?: (progress: TransferProgress) => void;

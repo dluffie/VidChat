@@ -62,85 +62,68 @@ When opening the app, users are greeted with two primary, distinct options:
 
 ---
 
-## 📦 How to Get the APK File
+## 📦 Running & Building the App
 
-The mobile application is a native React Native project located in [`videoshare/mobile/`](file:///c:/Users/devan/OneDrive/Desktop/VidChat/videoshare/mobile).
+The mobile application is an **Expo (managed workflow)** project using **expo-router**, located in [`videoshare/mobile/`](file:///c:/Users/devan/OneDrive/Desktop/VidChat/videoshare/mobile).
 
 ### Prerequisites
 - **Node.js**: >= 22.11.0 and npm
-- **Java Development Kit (JDK)**: JDK 17 (e.g. Eclipse Temurin 17 or OpenJDK 17)
-- **Android SDK**: Android API level 34+ and build-tools installed via Android Studio or command-line tools
-- **Environment Variables**:
-  - `ANDROID_HOME`: e.g. `C:\Users\<user>\AppData\Local\Android\Sdk`
-  - `JAVA_HOME`: e.g. `C:\Program Files\Eclipse Adoptium\jdk-17...`
-  - Add `%ANDROID_HOME%\platform-tools` to your system `PATH`
+- **Expo Go** app installed on your phone ([Android](https://play.google.com/store/apps/details?id=host.exp.exponent) / [iOS](https://apps.apple.com/app/expo-go/id982107779))
 
 ---
 
-### Method 1: Build Debug APK via Command Line (Fastest)
+### Method 1: Expo Go (Fastest — no build needed)
 
-1. Open a terminal in the Android directory:
+1. Install dependencies:
    ```bash
-   cd videoshare/mobile/android
+   cd videoshare/mobile
+   npm install
    ```
 
-2. Run the Gradle build task:
-   - **On Windows (PowerShell / Command Prompt)**:
-     ```cmd
-     gradlew.bat assembleDebug
-     ```
-   - **On macOS / Linux**:
-     ```bash
-     ./gradlew assembleDebug
-     ```
-
-3. **Locate your generated APK**:
-   ```
-   videoshare/mobile/android/app/build/outputs/apk/debug/app-debug.apk
-   ```
-
-4. **Install on Device or Emulator**:
-   - Connect your Android phone with USB Debugging enabled, or start an emulator:
-     ```bash
-     adb install videoshare/mobile/android/app/build/outputs/apk/debug/app-debug.apk
-     ```
-   - Or transfer `app-debug.apk` directly to your phone via USB / Google Drive and tap to install.
-
----
-
-### Method 2: Build APK via Android Studio (GUI)
-
-1. Open **Android Studio**.
-2. Select **File > Open** (or "Open Project") and choose the folder:
-   ```
-   videoshare/mobile/android
-   ```
-3. Wait for the Gradle project sync to finish.
-4. From the top menu bar, select:
-   **Build > Build Bundle(s) / APK(s) > Build APK(s)**
-5. When the build completes, click the **"locate"** link in the bottom-right notification popup to open the folder containing `app-debug.apk`.
-
----
-
-### Method 3: Build Signed Release APK (Production Distribution)
-
-1. Generate a keystore (if not already generated):
+2. Start the Expo dev server:
    ```bash
-   keytool -genkey -v -keystore my-release-key.keystore -alias my-key-alias -keyalg RSA -keysize 2048 -validity 10000
-   ```
-2. Place the keystore in `videoshare/mobile/android/app/`.
-3. Configure `android/app/build.gradle` with your release signing credentials.
-4. Run:
-   ```cmd
-   cd videoshare/mobile/android
-   gradlew.bat assembleRelease
-   ```
-5. Output APK:
-   ```
-   videoshare/mobile/android/app/build/outputs/apk/release/app-release.apk
+   npx expo start
    ```
 
-> **Note on Gradle Wrapper Download**: If running `gradlew` for the first time and the download of `gradle-9.4.1-bin.zip` times out due to network restrictions, open `videoshare/mobile/android` in Android Studio once—it will automatically download and cache Gradle components reliably.
+3. Scan the QR code with **Expo Go** on your phone.
+
+---
+
+### Method 2: EAS Build — APK / IPA (Production)
+
+1. Install EAS CLI:
+   ```bash
+   npm install -g eas-cli
+   eas login
+   ```
+
+2. Configure the build:
+   ```bash
+   cd videoshare/mobile
+   eas build:configure
+   ```
+
+3. Build for Android (APK):
+   ```bash
+   eas build -p android --profile preview
+   ```
+
+4. Build for iOS:
+   ```bash
+   eas build -p ios
+   ```
+
+> **Note**: EAS Build runs in the cloud — no Android SDK or Xcode required locally.
+
+---
+
+### Method 3: Local Development Build (Expo + native)
+
+```bash
+cd videoshare/mobile
+npx expo run:android   # requires Android SDK
+npx expo run:ios       # requires Xcode (macOS only)
+```
 
 ---
 
@@ -219,7 +202,7 @@ npx tsx tests/test_suite.ts
 ```bash
 cd videoshare/mobile
 npm install
-npm run android   # or npm run ios
+npx expo start      # scan QR with Expo Go app
 ```
 
 For in-depth architecture details and protocol specifications, see [`videoshare/README.md`](file:///c:/Users/devan/OneDrive/Desktop/VidChat/videoshare/README.md).

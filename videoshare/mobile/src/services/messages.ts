@@ -1,7 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
-import { WebSocketClient } from './websocket.js';
-import { PairingService } from './pairing.js';
-import { ChatMessage } from '../types/messages.js';
+import { WebSocketClient } from './websocket';
+import { PairingService } from './pairing';
+import { ChatMessage } from '../types/messages';
 
 export class MessageClientService {
   private static ws = WebSocketClient.getInstance();

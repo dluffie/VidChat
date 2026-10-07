@@ -1,6 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
-import { WebSocketClient } from './websocket.js';
-import { PairingState, PairCreateResponse, PairSuccessResponse } from '../types/pairing.js';
+import { WebSocketClient } from './websocket';
+import { PairingState, PairCreateResponse, PairSuccessResponse } from '../types/pairing';
 
 // Local storage cache simulation (in React Native can be AsyncStorage or Keychain)
 let localPairingCache: PairingState = {

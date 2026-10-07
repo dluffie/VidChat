@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { formatBytes, formatSpeed, formatEta } from '../utils/chunking.js';
+import { formatBytes, formatSpeed, formatEta } from '../utils/chunking';
 
 interface ProgressBarProps {
   percentage: number;
