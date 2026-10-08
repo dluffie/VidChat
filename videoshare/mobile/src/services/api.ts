@@ -3,14 +3,12 @@
 // In dev mode with Expo Go, use 'localhost' (Metro tunnels it for both Android & iOS).
 // For a physical device on the same LAN, use your machine's local IP (e.g. 192.168.x.x).
 
-// Replace 192.168.1.100 with your machine's LAN IP (run ipconfig to find it)
-const DEV_API_URL = 'http://192.168.1.100:3000';
 const PROD_API_URL = 'https://vidchat-6pdb.onrender.com';
+const PROD_WS_URL = 'wss://vidchat-6pdb.onrender.com/ws';
 
-export const API_URL = __DEV__ ? DEV_API_URL : PROD_API_URL;
-export const WS_URL = __DEV__
-  ? 'ws://192.168.1.100:3000/ws'
-  : 'wss://vidchat-6pdb.onrender.com/ws';
+// Default to live Render backend for testing on real internet and APK builds
+export const API_URL = PROD_API_URL;
+export const WS_URL = PROD_WS_URL;
 
 export class ApiService {
   private static baseUrl = API_URL;

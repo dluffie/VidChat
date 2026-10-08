@@ -11,6 +11,8 @@ export class WebSocketClient {
   private heartbeatTimer: any = null;
   private isConnecting: boolean = false;
   private pendingQueue: any[] = [];
+  private reconnectAttempts: number = 0;
+  private readonly MAX_RECONNECT_ATTEMPTS = 10;
 
   private constructor() {}
 
@@ -36,6 +38,7 @@ export class WebSocketClient {
 
       this.ws.onopen = () => {
         this.isConnecting = false;
+        this.reconnectAttempts = 0; // reset on successful connection
         if (this.reconnectTimer) {
           clearTimeout(this.reconnectTimer);
           this.reconnectTimer = null;
@@ -83,11 +86,14 @@ export class WebSocketClient {
   }
 
   private scheduleReconnect() {
-    if (!this.reconnectTimer) {
+    if (!this.reconnectTimer && this.reconnectAttempts < this.MAX_RECONNECT_ATTEMPTS) {
+      this.reconnectAttempts++;
+      // Exponential backoff: 3s, 6s, 12s... capped at 30s
+      const delay = Math.min(3000 * Math.pow(1.5, this.reconnectAttempts - 1), 30000);
       this.reconnectTimer = setTimeout(() => {
         this.reconnectTimer = null;
         this.connect();
-      }, 3000);
+      }, delay);
     }
   }
 

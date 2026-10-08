@@ -3,8 +3,19 @@ import { WebSocketClient } from './websocket';
 import { PairingState, PairCreateResponse, PairSuccessResponse } from '../types/pairing';
 
 // Local storage cache simulation (in React Native can be AsyncStorage or Keychain)
+// NOTE: deviceId is lazy-initialized via getOrCreateDeviceId() so that uuidv4()
+// is never called at module-load time (before the crypto polyfill is applied).
+let _deviceId: string | null = null;
+
+function getOrCreateDeviceId(): string {
+  if (!_deviceId) {
+    _deviceId = uuidv4();
+  }
+  return _deviceId;
+}
+
 let localPairingCache: PairingState = {
-  deviceId: uuidv4(),
+  get deviceId() { return getOrCreateDeviceId(); },
   sessionId: null,
   pairingCode: null,
   expiresAt: null,

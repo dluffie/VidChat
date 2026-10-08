@@ -5,9 +5,9 @@ import {
   StyleSheet,
   TouchableOpacity,
   ScrollView,
-  SafeAreaView,
   Platform,
 } from 'react-native';
+import { SafeScreen } from '../components/SafeScreen';
 import { useTransferStore } from '../store/transferStore';
 import { formatBytes, formatSpeed } from '../utils/chunking';
 import { calculateEncodedSize, calculateOverheadRatio } from '../utils/encoding';
@@ -39,14 +39,14 @@ export const VideoTransferScreen: React.FC<VideoTransferScreenProps> = ({ route,
 
   if (!transfer) {
     return (
-      <SafeAreaView style={styles.safeArea}>
+      <SafeScreen style={styles.safeArea}>
         <View style={styles.container}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
             <Text style={styles.backText}>← Back to Chat</Text>
           </TouchableOpacity>
           <Text style={styles.notFoundText}>Transfer session not found</Text>
         </View>
-      </SafeAreaView>
+      </SafeScreen>
     );
   }
 
@@ -55,7 +55,7 @@ export const VideoTransferScreen: React.FC<VideoTransferScreenProps> = ({ route,
   const isVerified = transfer.status === 'completed';
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeScreen style={styles.safeArea}>
       <ScrollView style={styles.container}>
         {/* Navigation Bar */}
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
@@ -185,7 +185,7 @@ export const VideoTransferScreen: React.FC<VideoTransferScreenProps> = ({ route,
           </View>
         </View>
       </ScrollView>
-    </SafeAreaView>
+    </SafeScreen>
   );
 };
 

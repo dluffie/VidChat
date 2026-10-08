@@ -6,11 +6,11 @@ import {
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
-  SafeAreaView,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
 } from 'react-native';
+import { SafeScreen } from '../components/SafeScreen';
 import { PairingService } from '../services/pairing';
 import { WebSocketClient } from '../services/websocket';
 import { StorageService } from '../services/storage';
@@ -19,6 +19,7 @@ import { VideoTransferService, PreProcessedVideo } from '../services/videoTransf
 import { useTransferStore } from '../store/transferStore';
 import { PairCode } from '../components/PairCode';
 import { DeviceStorageInfo } from '../types/pairing';
+import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import { base64ToUint8Array } from '../utils/encoding';
@@ -28,19 +29,15 @@ interface PairScreenProps {
   navigation: any;
 }
 
-interface VideoPreset {
+interface PickedVideoInfo {
+  uri: string;
   name: string;
-  sizeMb: number;
-  description: string;
-  resolution: string;
+  size: number;
+  duration?: number | null;
+  width?: number;
+  height?: number;
+  mimeType?: string;
 }
-
-const SAMPLE_PRESETS: VideoPreset[] = [
-  { name: 'sample_nature_720p.mp4', sizeMb: 5.0, description: 'Nature Doc Clip (720p)', resolution: '1280x720' },
-  { name: 'sample_drone_1080p.mp4', sizeMb: 12.5, description: 'City Drone Tour (1080p)', resolution: '1920x1080' },
-  { name: 'sample_action_4k.mp4', sizeMb: 25.0, description: 'Action Reel (High Bitrate 4K)', resolution: '3840x2160' },
-  { name: 'sample_micro_test.mp4', sizeMb: 1.0, description: 'Quick Benchmark Video', resolution: '640x360' },
-];
 
 export const PairScreen: React.FC<PairScreenProps> = ({ route, navigation }) => {
   const initialMode = route.params?.mode || 'select_file';
@@ -54,13 +51,8 @@ export const PairScreen: React.FC<PairScreenProps> = ({ route, navigation }) => 
   const [isSuccess, setIsSuccess] = useState<boolean>(false);
   const [pairingCode, setPairingCode] = useState<string>('');
 
-  // Sender / File Selector State
-  const [selectedPresetIndex, setSelectedPresetIndex] = useState<number>(1); // Default to 12.5 MB
-  const [customFileName, setCustomFileName] = useState<string>('');
-  const [customSizeMb, setCustomSizeMb] = useState<string>('10');
-  const [isCustomMode, setIsCustomMode] = useState<boolean>(false);
-  const [pickedVideoFile, setPickedVideoFile] = useState<{ uri: string; name: string; size: number } | null>(null);
-  const [pickedBinaryData, setPickedBinaryData] = useState<Uint8Array | null>(null);
+  // Sender / Real Video Selector State
+  const [selectedVideo, setSelectedVideo] = useState<PickedVideoInfo | null>(null);
 
   // Pre-Processing State
   const [isPreProcessing, setIsPreProcessing] = useState<boolean>(false);
@@ -148,43 +140,140 @@ export const PairScreen: React.FC<PairScreenProps> = ({ route, navigation }) => 
   }, [receiverStorage, preProcessedVideo]);
 
   /**
-   * SENDER STEP 1: Select File -> Start Video Pre-processing -> Generate 6-Digit Code
+   * SENDER: Pick Video from Gallery / Camera Roll (Expo Go & Native)
+   */
+  const handlePickFromGallery = async () => {
+    try {
+      setError(null);
+      if (Platform.OS !== 'web') {
+        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (status !== 'granted') {
+          setError('Camera roll / media permission is required to select a video.');
+          return;
+        }
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['videos'],
+        allowsEditing: false,
+        quality: 1,
+      });
+
+      if (result.canceled || !result.assets || result.assets.length === 0) {
+        return;
+      }
+
+      const asset = result.assets[0];
+      const uri = asset.uri;
+      const fileName = asset.fileName || uri.split('/').pop() || 'selected_video.mp4';
+      let size = asset.fileSize || 0;
+
+      if (!size) {
+        try {
+          const info = await FileSystem.getInfoAsync(uri);
+          if (info.exists && 'size' in info) {
+            size = (info as any).size || 0;
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      setSelectedVideo({
+        uri,
+        name: fileName,
+        size,
+        duration: asset.duration,
+        width: asset.width,
+        height: asset.height,
+        mimeType: asset.mimeType || 'video/mp4',
+      });
+    } catch (err: any) {
+      console.error('Error picking video from gallery:', err);
+      setError(err.message || 'Failed to pick video from gallery');
+    }
+  };
+
+  /**
+   * SENDER: Pick Video from Device Storage / Files
+   */
+  const handlePickFromFiles = async () => {
+    try {
+      setError(null);
+      const result = await DocumentPicker.getDocumentAsync({
+        type: 'video/*',
+        copyToCacheDirectory: true,
+      });
+
+      if (result.canceled || !result.assets || result.assets.length === 0) {
+        return;
+      }
+
+      const asset = result.assets[0];
+      const uri = asset.uri;
+      const fileName = asset.name || uri.split('/').pop() || 'selected_video.mp4';
+      let size = asset.size || 0;
+
+      if (!size) {
+        try {
+          const info = await FileSystem.getInfoAsync(uri);
+          if (info.exists && 'size' in info) {
+            size = (info as any).size || 0;
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      setSelectedVideo({
+        uri,
+        name: fileName,
+        size,
+        mimeType: asset.mimeType || 'video/mp4',
+      });
+    } catch (err: any) {
+      console.error('Error picking video from files:', err);
+      setError(err.message || 'Failed to pick file from device');
+    }
+  };
+
+  /**
+   * SENDER STEP 1: Pre-process Real Video & Generate 6-Digit Pairing Code
    */
   const handleStartPreProcessingAndPair = async () => {
+    if (!selectedVideo) {
+      setError('Please select a video from your device first.');
+      return;
+    }
+
+    const MAX_VIDEO_SIZE = 2 * 1024 * 1024 * 1024; // 2 GB limit
+    if (selectedVideo.size > MAX_VIDEO_SIZE) {
+      setError(
+        `Selected video is ${(selectedVideo.size / (1024 * 1024 * 1024)).toFixed(2)} GB. The maximum allowed transfer size is 2 GB.`
+      );
+      return;
+    }
+
     setError(null);
     setIsPreProcessing(true);
-    setPreProcessProgress(0);
-    setPreProcessStep('Initializing file binary...');
+    setPreProcessProgress(5);
+    setPreProcessStep('Reading video file from device storage...');
 
     try {
-      let fileName: string;
-      let binaryData: Uint8Array;
-      let mimeType: string = 'video/mp4';
+      // 1. Read real binary data from device
+      const base64Data = await FileSystem.readAsStringAsync(selectedVideo.uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
 
-      if (pickedVideoFile && pickedBinaryData) {
-        fileName = pickedVideoFile.name;
-        binaryData = pickedBinaryData;
-      } else {
-        fileName = isCustomMode
-          ? customFileName.trim() || 'custom_video.mp4'
-          : SAMPLE_PRESETS[selectedPresetIndex].name;
-        const sizeMb = isCustomMode
-          ? parseFloat(customSizeMb) || 10
-          : SAMPLE_PRESETS[selectedPresetIndex].sizeMb;
-        const sizeInBytes = Math.floor(sizeMb * 1024 * 1024);
-
-        // 1. Prepare video binary data
-        setPreProcessStep('Preparing video stream data...');
-        setPreProcessProgress(10);
-        const mockVideo = FileSystemService.createMockVideo(fileName, sizeInBytes);
-        binaryData = mockVideo.data;
-      }
+      setPreProcessStep('Processing binary data...');
+      setPreProcessProgress(20);
+      const binaryData = base64ToUint8Array(base64Data);
 
       // 2. Pre-process: Slicing chunks, Base64 text-safe encoding, and SHA-256 calculation
       const preprocessed = await VideoTransferService.preProcessVideo(
-        fileName,
+        selectedVideo.name,
         binaryData,
-        mimeType,
+        selectedVideo.mimeType || 'video/mp4',
         64 * 1024,
         (progress, step) => {
           setPreProcessProgress(progress);
@@ -204,71 +293,6 @@ export const PairScreen: React.FC<PairScreenProps> = ({ route, navigation }) => 
     } catch (err: any) {
       setIsPreProcessing(false);
       setError(err.message || 'Pre-processing or pairing code generation failed');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  /**
-   * SENDER: Pick Real Video from device storage
-   */
-  const handlePickRealVideo = async () => {
-    try {
-      setError(null);
-      const result = await DocumentPicker.getDocumentAsync({
-        type: 'video/*',
-        copyToCacheDirectory: true,
-      });
-
-      if (result.canceled || !result.assets || result.assets.length === 0) {
-        return;
-      }
-
-      const asset = result.assets[0];
-      const fileName = asset.name || 'selected_video.mp4';
-      const uri = asset.uri;
-
-      setIsPreProcessing(true);
-      setPreProcessProgress(5);
-      setPreProcessStep('Reading selected video from device storage...');
-
-      const base64Data = await FileSystem.readAsStringAsync(uri, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
-      const binaryData = base64ToUint8Array(base64Data);
-      const actualSize = asset.size || binaryData.byteLength;
-
-      setPickedVideoFile({
-        uri,
-        name: fileName,
-        size: actualSize,
-      });
-      setPickedBinaryData(binaryData);
-      setIsCustomMode(false);
-
-      // Proceed with preProcessVideo flow
-      const preprocessed = await VideoTransferService.preProcessVideo(
-        fileName,
-        binaryData,
-        asset.mimeType || 'video/mp4',
-        64 * 1024,
-        (progress, step) => {
-          setPreProcessProgress(progress);
-          setPreProcessStep(step);
-        }
-      );
-
-      setPreProcessedVideo(preprocessed);
-      setPreProcessProgress(100);
-      setPreProcessStep('Pre-processing complete ✓ Requesting 6-digit code...');
-
-      setLoading(true);
-      const res = await PairingService.createPair();
-      setPairingCode(res.pairingCode);
-      setIsPreProcessing(false);
-    } catch (err: any) {
-      setIsPreProcessing(false);
-      setError(err.message || 'Failed to read or pre-process selected video');
     } finally {
       setLoading(false);
     }
@@ -320,8 +344,7 @@ export const PairScreen: React.FC<PairScreenProps> = ({ route, navigation }) => 
     setStorageCheckResult(null);
     setPairingCode('');
     setPreProcessedVideo(null);
-    setPickedVideoFile(null);
-    setPickedBinaryData(null);
+    setSelectedVideo(null);
     setIsSuccess(false);
     navigation.goBack();
   };
@@ -357,7 +380,7 @@ export const PairScreen: React.FC<PairScreenProps> = ({ route, navigation }) => 
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeScreen style={styles.safeArea}>
       <KeyboardAvoidingView
         style={styles.keyboardContainer}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -410,122 +433,92 @@ export const PairScreen: React.FC<PairScreenProps> = ({ route, navigation }) => 
           {/* ========================================================================= */}
           {mode === 'select_file' ? (
             <View style={styles.contentCard}>
-              {/* STAGE 1: File Selection */}
+              {/* STAGE 1: Real File Selection */}
               {!preProcessedVideo && !isPreProcessing && (
                 <View>
                   <Text style={styles.sectionHeaderTitle}>Select Video to Transfer</Text>
                   <Text style={styles.sectionSubtext}>
-                    Selecting a video will start local pre-processing (SHA-256 integrity hash & Base64 chunking) and generate your 6-digit pairing code.
+                    Choose a real video from your device to begin. It will be pre-processed locally (SHA-256 integrity hash & chunking) and generate a 6-digit pairing code.
                   </Text>
 
-                  <Text style={styles.presetLabel}>Choose Sample Video Preset:</Text>
-                  {SAMPLE_PRESETS.map((preset, index) => {
-                    const isSelected = !isCustomMode && !pickedVideoFile && selectedPresetIndex === index;
-                    return (
+                  {!selectedVideo ? (
+                    <View style={styles.pickerOptionsContainer}>
+                      {/* Pick from Gallery Button */}
                       <TouchableOpacity
-                        key={preset.name}
-                        style={[styles.presetCard, isSelected && styles.presetCardSelected]}
+                        style={styles.pickerCardPrimary}
                         activeOpacity={0.8}
-                        onPress={() => {
-                          setIsCustomMode(false);
-                          setPickedVideoFile(null);
-                          setPickedBinaryData(null);
-                          setSelectedPresetIndex(index);
-                        }}
+                        onPress={handlePickFromGallery}
                       >
-                        <View style={styles.presetLeft}>
-                          <Text style={styles.presetIcon}>🎬</Text>
-                          <View>
-                            <Text style={styles.presetName}>{preset.description}</Text>
-                            <Text style={styles.presetDetails}>
-                              {preset.resolution} • {preset.name}
-                            </Text>
-                          </View>
+                        <View style={styles.pickerIconContainer}>
+                          <Text style={styles.pickerIcon}>🎬</Text>
                         </View>
-                        <View style={styles.presetSizeBadge}>
-                          <Text style={styles.presetSizeText}>{preset.sizeMb.toFixed(1)} MB</Text>
+                        <View style={styles.pickerCardContent}>
+                          <Text style={styles.pickerCardTitle}>Choose from Gallery</Text>
+                          <Text style={styles.pickerCardSubtext}>
+                            Open camera roll & videos (Expo Go & Android)
+                          </Text>
                         </View>
+                        <Text style={styles.pickerArrow}>→</Text>
                       </TouchableOpacity>
-                    );
-                  })}
 
-                  {/* Pick Real Video Option */}
-                  <TouchableOpacity
-                    style={[styles.presetCard, pickedVideoFile && !isCustomMode && styles.presetCardSelected]}
-                    activeOpacity={0.8}
-                    onPress={handlePickRealVideo}
-                  >
-                    <View style={styles.presetLeft}>
-                      <Text style={styles.presetIcon}>📱</Text>
-                      <View style={{ flex: 1, paddingRight: 8 }}>
-                        <Text style={styles.presetName}>
-                          {pickedVideoFile ? `Picked: ${pickedVideoFile.name}` : 'Pick Real Video'}
-                        </Text>
-                        <Text style={styles.presetDetails}>
-                          {pickedVideoFile
-                            ? `${(pickedVideoFile.size / (1024 * 1024)).toFixed(1)} MB • Real device video`
-                            : 'Select video from device gallery or files'}
-                        </Text>
+                      {/* Pick from Files Button */}
+                      <TouchableOpacity
+                        style={styles.pickerCardSecondary}
+                        activeOpacity={0.8}
+                        onPress={handlePickFromFiles}
+                      >
+                        <View style={styles.pickerIconContainerSecondary}>
+                          <Text style={styles.pickerIcon}>📁</Text>
+                        </View>
+                        <View style={styles.pickerCardContent}>
+                          <Text style={styles.pickerCardTitle}>Browse Files</Text>
+                          <Text style={styles.pickerCardSubtext}>
+                            Pick video file from device storage
+                          </Text>
+                        </View>
+                        <Text style={styles.pickerArrow}>→</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    /* Video Selected Card */
+                    <View style={styles.selectedVideoCard}>
+                      <View style={styles.selectedVideoHeader}>
+                        <View style={styles.selectedVideoIconBox}>
+                          <Text style={styles.selectedVideoIcon}>📹</Text>
+                        </View>
+                        <View style={styles.selectedVideoInfo}>
+                          <Text style={styles.selectedVideoTitle} numberOfLines={1}>
+                            {selectedVideo.name}
+                          </Text>
+                          <Text style={styles.selectedVideoMeta}>
+                            📦 {(selectedVideo.size / (1024 * 1024)).toFixed(2)} MB
+                            {selectedVideo.duration ? ` • ⏱ ${Math.round(selectedVideo.duration / 1000)}s` : ''}
+                            {selectedVideo.width && selectedVideo.height ? ` • 📐 ${selectedVideo.width}x${selectedVideo.height}` : ''}
+                          </Text>
+                        </View>
                       </View>
-                    </View>
-                    <View style={[styles.presetSizeBadge, pickedVideoFile ? { backgroundColor: '#064E3B' } : undefined]}>
-                      <Text style={styles.presetSizeText}>
-                        {pickedVideoFile ? `${(pickedVideoFile.size / (1024 * 1024)).toFixed(1)} MB` : 'Browse 📂'}
-                      </Text>
-                    </View>
-                  </TouchableOpacity>
 
-                  {/* Custom Video Option */}
-                  <TouchableOpacity
-                    style={[styles.presetCard, isCustomMode && styles.presetCardSelected]}
-                    activeOpacity={0.8}
-                    onPress={() => {
-                      setIsCustomMode(true);
-                      setPickedVideoFile(null);
-                      setPickedBinaryData(null);
-                    }}
-                  >
-                    <View style={styles.presetLeft}>
-                      <Text style={styles.presetIcon}>📁</Text>
-                      <View>
-                        <Text style={styles.presetName}>Custom File Size & Name</Text>
-                        <Text style={styles.presetDetails}>Specify arbitrary video parameters</Text>
+                      <View style={styles.selectedVideoActions}>
+                        <TouchableOpacity
+                          style={styles.changeVideoButton}
+                          activeOpacity={0.7}
+                          onPress={() => setSelectedVideo(null)}
+                        >
+                          <Text style={styles.changeVideoText}>🔄 Change Video</Text>
+                        </TouchableOpacity>
                       </View>
-                    </View>
-                    <Text style={styles.customArrow}>✏️</Text>
-                  </TouchableOpacity>
 
-                  {isCustomMode && (
-                    <View style={styles.customBox}>
-                      <Text style={styles.inputLabel}>File Name:</Text>
-                      <TextInput
-                        style={styles.textInput}
-                        value={customFileName}
-                        onChangeText={setCustomFileName}
-                        placeholder="my_vacation_clip.mp4"
-                        placeholderTextColor="#475569"
-                      />
-                      <Text style={styles.inputLabel}>File Size (MB):</Text>
-                      <TextInput
-                        style={styles.textInput}
-                        value={customSizeMb}
-                        onChangeText={setCustomSizeMb}
-                        keyboardType="decimal-pad"
-                        placeholder="15"
-                        placeholderTextColor="#475569"
-                      />
+                      <TouchableOpacity
+                        style={styles.primaryActionButton}
+                        activeOpacity={0.85}
+                        onPress={handleStartPreProcessingAndPair}
+                      >
+                        <Text style={styles.primaryActionButtonText}>
+                          Start Pre-Processing & Generate Code →
+                        </Text>
+                      </TouchableOpacity>
                     </View>
                   )}
-
-                  <TouchableOpacity
-                    style={styles.primaryActionButton}
-                    activeOpacity={0.85}
-                    onPress={handleStartPreProcessingAndPair}
-                  >
-                    <Text style={styles.primaryActionButtonText}>
-                      Start Pre-Processing & Generate Code →
-                    </Text>
-                  </TouchableOpacity>
                 </View>
               )}
 
@@ -795,7 +788,7 @@ export const PairScreen: React.FC<PairScreenProps> = ({ route, navigation }) => 
           )}
         </ScrollView>
       </KeyboardAvoidingView>
-    </SafeAreaView>
+    </SafeScreen>
   );
 };
 
@@ -885,82 +878,122 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     marginBottom: 18,
   },
-  presetLabel: {
-    color: '#CBD5E1',
-    fontSize: 13,
-    fontWeight: '700',
-    marginBottom: 10,
+  pickerOptionsContainer: {
+    gap: 12,
+    marginBottom: 16,
   },
-  presetCard: {
+  pickerCardPrimary: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
     backgroundColor: '#1E293B',
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 10,
+    borderRadius: 14,
+    padding: 16,
     borderWidth: 1.5,
-    borderColor: '#334155',
-  },
-  presetCardSelected: {
     borderColor: '#10B981',
-    backgroundColor: '#0F291E',
   },
-  presetLeft: {
+  pickerCardSecondary: {
     flexDirection: 'row',
     alignItems: 'center',
+    backgroundColor: '#1E293B',
+    borderRadius: 14,
+    padding: 16,
+    borderWidth: 1.5,
+    borderColor: '#38BDF8',
+  },
+  pickerIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 14,
+  },
+  pickerIconContainerSecondary: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    backgroundColor: 'rgba(56, 189, 248, 0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 14,
+  },
+  pickerIcon: {
+    fontSize: 24,
+  },
+  pickerCardContent: {
     flex: 1,
   },
-  presetIcon: {
-    fontSize: 24,
+  pickerCardTitle: {
+    color: '#F8FAFC',
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  pickerCardSubtext: {
+    color: '#94A3B8',
+    fontSize: 12,
+  },
+  pickerArrow: {
+    color: '#94A3B8',
+    fontSize: 20,
+    fontWeight: '700',
+    marginLeft: 8,
+  },
+  selectedVideoCard: {
+    backgroundColor: '#1E293B',
+    borderRadius: 14,
+    padding: 16,
+    borderWidth: 1.5,
+    borderColor: '#10B981',
+    marginBottom: 16,
+  },
+  selectedVideoHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 14,
+  },
+  selectedVideoIconBox: {
+    width: 44,
+    height: 44,
+    borderRadius: 10,
+    backgroundColor: 'rgba(16, 185, 129, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
     marginRight: 12,
   },
-  presetName: {
+  selectedVideoIcon: {
+    fontSize: 22,
+  },
+  selectedVideoInfo: {
+    flex: 1,
+  },
+  selectedVideoTitle: {
     color: '#F8FAFC',
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '700',
+    marginBottom: 4,
   },
-  presetDetails: {
-    color: '#94A3B8',
-    fontSize: 11,
-    marginTop: 2,
-  },
-  presetSizeBadge: {
-    backgroundColor: '#064E3B',
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    borderRadius: 6,
-  },
-  presetSizeText: {
+  selectedVideoMeta: {
     color: '#34D399',
     fontSize: 12,
-    fontWeight: '700',
-  },
-  customArrow: {
-    fontSize: 16,
-  },
-  customBox: {
-    backgroundColor: '#0F172A',
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#334155',
-  },
-  inputLabel: {
-    color: '#94A3B8',
-    fontSize: 12,
-    marginBottom: 4,
     fontWeight: '600',
   },
-  textInput: {
-    backgroundColor: '#1E293B',
-    borderRadius: 8,
-    color: '#FFFFFF',
+  selectedVideoActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginBottom: 14,
+  },
+  changeVideoButton: {
+    paddingVertical: 6,
     paddingHorizontal: 12,
-    paddingVertical: 8,
-    marginBottom: 10,
-    fontSize: 14,
+    backgroundColor: '#334155',
+    borderRadius: 8,
+  },
+  changeVideoText: {
+    color: '#CBD5E1',
+    fontSize: 12,
+    fontWeight: '600',
   },
   primaryActionButton: {
     backgroundColor: '#059669',

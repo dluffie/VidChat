@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { SafeScreen } from '../components/SafeScreen';
 import { PairingService } from '../services/pairing';
 import { WebSocketClient } from '../services/websocket';
 import { StorageService } from '../services/storage';
@@ -33,7 +34,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   }, [setStatus]);
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeScreen style={styles.safeArea}>
       <View style={styles.container}>
         {/* Top Header & Branding */}
         <View style={styles.header}>
@@ -137,7 +138,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
           </Text>
         </View>
       </View>
-    </SafeAreaView>
+    </SafeScreen>
   );
 };
 

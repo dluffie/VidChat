@@ -6,11 +6,11 @@ import {
   TouchableOpacity,
   FlatList,
   StyleSheet,
-  SafeAreaView,
   KeyboardAvoidingView,
   Platform,
   Modal,
 } from 'react-native';
+import { SafeScreen } from '../components/SafeScreen';
 import { ChatBubble } from '../components/ChatBubble';
 import { VideoBubble } from '../components/VideoBubble';
 import { MessageClientService } from '../services/messages';
@@ -175,7 +175,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({ navigation }) => {
   ].sort((a, b) => a.timestamp - b.timestamp);
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeScreen style={styles.safeArea}>
       <KeyboardAvoidingView
         style={styles.container}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -367,7 +367,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({ navigation }) => {
           </View>
         </Modal>
       </KeyboardAvoidingView>
-    </SafeAreaView>
+    </SafeScreen>
   );
 };
 
