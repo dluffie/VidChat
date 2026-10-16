@@ -83,13 +83,19 @@ The choice is persisted on device and applied instantly across every screen, inc
 
 ### 4. Iconography
 
-There are **no emoji anywhere in the interface**. Every icon comes from a single monochrome set (`src/components/ui/Icon.tsx`) that inherits the active theme colour, so icons always match the surrounding text. Shapes that have no dependable system glyph — chevrons, the checkmark, the clock, the play triangle, the lock, signal bars, the film frame, the database stack — are drawn from plain views. Only ASCII and Basic-Latin glyphs are used where a glyph is needed at all, which avoids two common Android problems: pictographic characters being replaced by a colour emoji font, and geometric characters missing from the device font.
+There are **no emoji anywhere in the interface**. Every in-app icon comes from a single monochrome set (`src/components/ui/Icon.tsx`) that inherits the active theme colour, so icons always match the surrounding text. Shapes that have no dependable system glyph — chevrons, the checkmark, the clock, the play triangle, the lock, signal bars, the framed video glyph, the database stack — are drawn from plain views. Only ASCII and Basic-Latin glyphs are used where a glyph is needed at all, which avoids two common Android problems: pictographic characters being replaced by a colour emoji font, and geometric characters missing from the device font.
 
-### 5. Keyboard Handling
+### 5. App Icon & Splash
+
+The launcher icon is a **gradient play triangle with two motion beams** — the triangle says "video", the beams say "in transit". It is drawn in the Aurora Dark palette (`#7C6BFF → #3FD0E0`) so the icon matches the app's default theme, and it stays legible down to 24 px.
+
+All five assets are generated from `videoshare/mobile/assets/generate-icons.py`, which also encodes the Android adaptive-icon safe zone (the mark is emitted at 0.86 scale so it survives a circular mask, a squircle mask and the tight 66 dp safe zone without clipping) and provides the Android 13+ `monochromeImage` for themed icons. The splash is the mark alone on `#0A0F1D` with no wordmark, so there is no flash between the splash and the first screen.
+
+### 6. Keyboard Handling
 
 Every screen with a text field uses `KeyboardAvoidingView` with **`behavior="padding"` on Android as well as iOS**. Since edge-to-edge became the default in Expo SDK 53+, Android no longer honours `windowSoftInputMode="adjustResize"`, so the previous Android-specific "no avoidance" branch left the chat composer and the pairing-code input hidden behind the keyboard. `KeyboardAvoidingView` measures the overlap against its own frame, which makes this self-correcting: on a device where the window *does* resize, the overlap is zero and no extra padding is added. The chat also scrolls to the newest message when the keyboard opens.
 
-### 6. Working on a Bad Connection
+### 7. Working on a Bad Connection
 
 A fixed timeout cannot serve both Wi-Fi (RTT ~50 ms) and 2G (RTT of several seconds at ~10 KB/s), so **every timing decision is derived from a measured round-trip time**:
 

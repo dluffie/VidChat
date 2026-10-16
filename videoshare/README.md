@@ -279,7 +279,7 @@ videoshare/
 │   │   ├── pair.tsx                     # Pairing route
 │   │   ├── chat.tsx                     # Chat route
 │   │   └── videotransfer.tsx            # Playback route
-│   ├── assets/                          # icon.png, splash-icon.png, adaptive-icon.png, favicon.png
+│   ├── assets/                          # Generated icon set + generate-icons.py
 │   ├── src/
 │   │   ├── components/
 │   │   │   ├── ChatBubble.tsx           # Glass message bubble with status ticks
@@ -476,6 +476,7 @@ For every video transfer, Convey measures:
 - [x] **Renamed to "Convey" (v1.1.0)**: Display name, on-device storage root (`Convey/`) and all user-facing copy updated. Build identifiers (`slug`, `scheme`, `com.videoshare.app`) are deliberately unchanged so the EAS project and existing installs stay linked.
 - [x] **Keyboard-Safe Inputs**: Every text field — the chat composer, the test-video file-name field and the pairing-code input — now uses `KeyboardAvoidingView` with `behavior="padding"` on **Android as well as iOS**. Since edge-to-edge became the default in Expo SDK 53+, Android no longer honours `adjustResize`, so the previous Android-specific "no avoidance" branch left inputs hidden behind the keyboard.
 - [x] **Emoji-Free Icon Set**: Every colour emoji and dingbat glyph was removed and replaced by a single monochrome, theme-tinted `Icon` component. Geometric shapes (chevrons, checkmark, clock, play triangle, lock, signal bars, framed video glyph, half-filled theme control, refresh arc, database stack) are drawn from plain views, so nothing depends on a font glyph or an emoji fallback font.
+- [x] **App Icon & Splash**: Launcher icon replaced (the old blue-circle placeholder is gone) with a generated gradient mark in the Aurora palette, plus a correct adaptive foreground inside the Android safe zone, an Android 13+ monochrome layer for themed icons, and a mark-only splash on `#0A0F1D`. Everything is reproducible from `videoshare/mobile/assets/generate-icons.py`.
 - [x] **Complete UI Redesign ("liquid glass")**: Aurora canvas, translucent glass panes, gradient CTAs and a monochrome icon set replacing colour emoji — applied to every screen.
 - [x] **Multi-Theme System**: Four selectable themes (*Aurora Dark*, *Aurora Light*, *Claude Warm*, *Midnight*) plus a **System** option that follows the device, with an in-app appearance picker and persisted selection.
 - [x] **Low-Connection Support (2G / EDGE / flaky Wi-Fi)**: RTT-aware timeouts, adaptive chunk sizing (down to 16 KB), adaptive congestion window, half-open socket detection, endless capped-backoff reconnects and automatic re-authentication.
