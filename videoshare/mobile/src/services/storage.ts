@@ -1,10 +1,10 @@
-import * as FileSystem from 'expo-file-system/legacy';
 import { DeviceStorageInfo } from '../types/pairing';
+import { FileSystemService } from './fileSystem';
 
 export class StorageService {
   private static simulatedFreeBytes: number | null = null;
-  private static defaultFreeBytes: number = 24.5 * 1024 * 1024 * 1024; // 24.5 GB default
-  private static defaultTotalBytes: number = 64 * 1024 * 1024 * 1024; // 64 GB default
+  private static defaultFreeBytes: number = 24.5 * 1024 * 1024 * 1024; // 24.5 GB fallback
+  private static defaultTotalBytes: number = 64 * 1024 * 1024 * 1024; // 64 GB fallback
 
   /**
    * Format raw bytes into human readable string (e.g. '15.4 MB', '4.2 GB')
@@ -12,14 +12,17 @@ export class StorageService {
   static formatBytes(bytes: number): string {
     if (bytes <= 0) return '0 B';
     const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(1024));
+    const i = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)));
     const size = bytes / Math.pow(1024, i);
     return `${size.toFixed(i >= 2 ? 1 : 0)} ${units[i]}`;
   }
 
   /**
-   * Retrieves device storage info (free space and total storage capacity)
-   * Uses expo-file-system APIs — works on both iOS and Android without native modules.
+   * Retrieves device storage info (free space and total capacity).
+   *
+   * Reads the values straight off the native file system module. The previous
+   * implementation used deprecated async helpers that silently fell back to a
+   * fabricated 24.5 GB, which made the pre-transfer storage check useless.
    */
   static async getStorageInfo(): Promise<DeviceStorageInfo> {
     if (this.simulatedFreeBytes !== null) {
@@ -31,25 +34,19 @@ export class StorageService {
       };
     }
 
-    try {
-      const [freeBytes, totalBytes] = await Promise.all([
-        FileSystem.getFreeDiskStorageAsync(),
-        FileSystem.getTotalDiskCapacityAsync(),
-      ]);
+    const freeBytes = FileSystemService.getAvailableDiskSpace();
+    const totalBytes = FileSystemService.getTotalDiskSpace();
 
-      if (freeBytes != null && totalBytes != null) {
-        return {
-          freeBytes,
-          totalBytes,
-          freeFormatted: this.formatBytes(freeBytes),
-          totalFormatted: this.formatBytes(totalBytes),
-        };
-      }
-    } catch (e) {
-      console.warn('expo-file-system storage query failed, falling back to defaults:', e);
+    if (freeBytes > 0) {
+      return {
+        freeBytes,
+        totalBytes: totalBytes > 0 ? totalBytes : this.defaultTotalBytes,
+        freeFormatted: this.formatBytes(freeBytes),
+        totalFormatted: this.formatBytes(totalBytes > 0 ? totalBytes : this.defaultTotalBytes),
+      };
     }
 
-    // Default realistic storage for mobile device
+    console.warn('[StorageService] Native disk space unavailable, using fallback estimate');
     return {
       freeBytes: this.defaultFreeBytes,
       totalBytes: this.defaultTotalBytes,
@@ -73,8 +70,8 @@ export class StorageService {
     const requiredFormatted = this.formatBytes(requiredBytes);
     const availableFormatted = this.formatBytes(availableBytes);
 
-    // Keep a safety margin of at least 10MB or 5% of file size
-    const safetyMargin = Math.max(10 * 1024 * 1024, requiredBytes * 0.05);
+    // Keep a safety margin of at least 50MB or 5% of file size
+    const safetyMargin = Math.max(50 * 1024 * 1024, requiredBytes * 0.05);
     const totalRequiredWithMargin = requiredBytes + safetyMargin;
 
     if (availableBytes < totalRequiredWithMargin) {
@@ -82,7 +79,7 @@ export class StorageService {
         sufficient: false,
         requiredFormatted,
         availableFormatted,
-        message: `Insufficient storage on receiver! Available: ${availableFormatted}, Required: ${requiredFormatted}. Transfer blocked to prevent failure.`,
+        message: `Insufficient storage on receiver! Available: ${availableFormatted}, Required: ${requiredFormatted} (+ safety margin). Transfer blocked to prevent a mid-transfer failure.`,
       };
     }
 
@@ -90,7 +87,7 @@ export class StorageService {
       sufficient: true,
       requiredFormatted,
       availableFormatted,
-      message: `Receiver has plenty of space (${availableFormatted} free). Safe to transfer ${requiredFormatted}.`,
+      message: `Receiver has enough space (${availableFormatted} free). Safe to transfer ${requiredFormatted}.`,
     };
   }
 

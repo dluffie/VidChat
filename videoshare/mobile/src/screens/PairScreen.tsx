@@ -22,7 +22,6 @@ import { DeviceStorageInfo } from '../types/pairing';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
-import { base64ToUint8Array } from '../utils/encoding';
 
 interface PairScreenProps {
   route: any;
@@ -256,23 +255,16 @@ export const PairScreen: React.FC<PairScreenProps> = ({ route, navigation }) => 
 
     setError(null);
     setIsPreProcessing(true);
-    setPreProcessProgress(5);
-    setPreProcessStep('Reading video file from device storage...');
+    setPreProcessProgress(10);
+    setPreProcessStep('Preparing the selected video...');
 
     try {
-      // 1. Read real binary data from device
-      const base64Data = await FileSystem.readAsStringAsync(selectedVideo.uri, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
-
-      setPreProcessStep('Processing binary data...');
-      setPreProcessProgress(20);
-      const binaryData = base64ToUint8Array(base64Data);
-
-      // 2. Pre-process: Slicing chunks, Base64 text-safe encoding, and SHA-256 calculation
+      // Prepare the transfer descriptor. No full-file read happens here: chunks
+      // are streamed off disk on demand once the transfer starts, so even a 2 GB
+      // video uses almost no memory.
       const preprocessed = await VideoTransferService.preProcessVideo(
+        selectedVideo.uri,
         selectedVideo.name,
-        binaryData,
         selectedVideo.mimeType || 'video/mp4',
         64 * 1024,
         (progress, step) => {
@@ -283,7 +275,7 @@ export const PairScreen: React.FC<PairScreenProps> = ({ route, navigation }) => 
 
       setPreProcessedVideo(preprocessed);
       setPreProcessProgress(100);
-      setPreProcessStep('Pre-processing complete ✓ Requesting 6-digit code...');
+      setPreProcessStep('Ready ✓ Requesting 6-digit code...');
 
       // 3. Generate 6-figure pairing code from backend
       setLoading(true);

@@ -1,9 +1,8 @@
 import * as FileSystem from 'expo-file-system/legacy';
-import { base64ToUint8Array, uint8ArrayToBase64 } from '../utils/encoding';
-import { calculateSHA256 } from './hashing';
+import { File, FileHandle, FileMode, Paths } from 'expo-file-system';
+import { base64ToUint8Array } from '../utils/encoding';
 
-// In-memory or filesystem storage abstraction
-const assembledFiles = new Map<string, Uint8Array>(); // filePath -> binaryData
+const YIELD_EVERY_CHUNKS = 64;
 
 export class FileSystemService {
   private static get basePath(): string {
@@ -16,27 +15,106 @@ export class FileSystemService {
     return docDir.endsWith('/') ? `${docDir}VideoShare/downloads/` : `${docDir}/VideoShare/downloads/`;
   }
 
+  private static get stagingPath(): string {
+    const cacheDir = FileSystem.cacheDirectory || '';
+    return cacheDir.endsWith('/') ? `${cacheDir}VideoShare/` : `${cacheDir}/VideoShare/`;
+  }
+
   private static getTransferDir(transferId: string): string {
     const base = this.basePath;
     return base.endsWith('/') ? `${base}${transferId}` : `${base}/${transferId}`;
   }
 
+  static sanitizeFileName(fileName: string): string {
+    const cleaned = fileName.replace(/[\\/:*?"<>|]/g, '_').replace(/^\.+/, '').trim();
+    return cleaned.length > 0 ? cleaned : 'video.mp4';
+  }
+
+  private static async ensureDir(dir: string): Promise<void> {
+    try {
+      await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
+    } catch {
+      // Already exists — callers can race.
+    }
+  }
+
   /**
-   * Initializes the temporary directory for incoming video chunks
-   * e.g. /VideoShare/transfers/{transferId}/
+   * Free space on the device's internal storage, in bytes.
+   * Reported by the native module instead of the deprecated async helpers.
    */
+  static getAvailableDiskSpace(): number {
+    try {
+      return Paths.availableDiskSpace || 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  static getTotalDiskSpace(): number {
+    try {
+      return Paths.totalDiskSpace || 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  static async getFileSize(uri: string): Promise<number> {
+    try {
+      const info = await FileSystem.getInfoAsync(uri);
+      if (info.exists && 'size' in info && typeof (info as any).size === 'number') {
+        return (info as any).size as number;
+      }
+    } catch {
+      // fall through
+    }
+    try {
+      return new File(uri).size;
+    } catch {
+      return 0;
+    }
+  }
+
+  /**
+   * Makes sure the file can be randomly accessed with a plain `file://` path.
+   * Storage Access Framework `content://` URIs do not support seeking the way we
+   * need, so those are copied into the app cache once.
+   */
+  static async ensureLocalFile(sourceUri: string, transferId: string): Promise<string> {
+    if (sourceUri.startsWith('file://')) {
+      return sourceUri;
+    }
+
+    await this.ensureDir(this.stagingPath);
+    const dest = `${this.stagingPath}${transferId}-source`;
+    await FileSystem.copyAsync({ from: sourceUri, to: dest });
+    return dest;
+  }
+
+  /** Opens a read handle for slicing a file by byte range. */
+  static openReadHandle(uri: string): FileHandle {
+    return new File(uri).open(FileMode.ReadOnly);
+  }
+
+  static closeHandle(handle: FileHandle | undefined | null): void {
+    if (!handle) return;
+    try {
+      handle.close();
+    } catch {
+      // already closed
+    }
+  }
+
   static async initTransferDirectory(transferId: string): Promise<string> {
     const dir = this.getTransferDir(transferId);
-    const info = await FileSystem.getInfoAsync(dir);
-    if (!info.exists) {
-      await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
-    }
+    await this.ensureDir(dir);
     return dir;
   }
 
   /**
-   * Writes a chunk text payload to local device storage
-   * chunk filename format: chunk_000001
+   * Writes a chunk payload to local device storage.
+   * Filename format: chunk_000001
+   *
+   * Uses the base64 encoding option so the native layer performs the decode.
    */
   static async writeChunk(
     transferId: string,
@@ -44,10 +122,7 @@ export class FileSystemService {
     base64Data: string
   ): Promise<void> {
     const dir = this.getTransferDir(transferId);
-    const dirInfo = await FileSystem.getInfoAsync(dir);
-    if (!dirInfo.exists) {
-      await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
-    }
+    await this.ensureDir(dir);
     const padded = String(chunkIndex).padStart(6, '0');
     const chunkPath = `${dir}/chunk_${padded}`;
     await FileSystem.writeAsStringAsync(chunkPath, base64Data, {
@@ -55,9 +130,6 @@ export class FileSystemService {
     });
   }
 
-  /**
-   * Reads a single saved chunk
-   */
   static async readChunk(transferId: string, chunkIndex: number): Promise<string | null> {
     const padded = String(chunkIndex).padStart(6, '0');
     const chunkPath = `${this.getTransferDir(transferId)}/chunk_${padded}`;
@@ -73,7 +145,7 @@ export class FileSystemService {
   }
 
   /**
-   * Returns a list of chunk indices that have been successfully saved for this transfer
+   * Returns the indices of chunks already persisted for this transfer.
    */
   static async getSavedChunkIndices(transferId: string): Promise<number[]> {
     const dir = this.getTransferDir(transferId);
@@ -95,71 +167,80 @@ export class FileSystemService {
   }
 
   /**
-   * Reassembles all saved chunks into the destination video file
-   * Then computes and returns the reconstructed file's SHA-256 hash
+   * Streams every saved chunk into the destination video file.
+   *
+   * Chunks are copied one at a time through a native file handle and deleted as
+   * soon as they have been appended, so peak memory stays at a single chunk and
+   * peak disk usage stays close to one copy of the video instead of two.
    */
   static async reassembleVideo(
     transferId: string,
     fileName: string,
-    totalChunks: number
-  ): Promise<{ filePath: string; reconstructedHash: string; byteLength: number }> {
+    totalChunks: number,
+    onProgress?: (copiedChunks: number, totalChunks: number) => void
+  ): Promise<{ filePath: string; byteLength: number }> {
     const dir = this.getTransferDir(transferId);
-    const savedIndices = await this.getSavedChunkIndices(transferId);
-    if (savedIndices.length !== totalChunks) {
-      throw new Error(`Cannot reassemble: expected ${totalChunks} chunks, found ${savedIndices.length}`);
-    }
+    const downloadDir = this.downloadPath;
+    await this.ensureDir(downloadDir);
 
-    // Determine total byte length by summing individual decoded chunks
-    const decodedChunks: Uint8Array[] = [];
+    const destPath = `${downloadDir}${this.sanitizeFileName(fileName)}`;
+    const dest = new File(destPath);
+
+    try {
+      dest.delete();
+    } catch {
+      // did not exist
+    }
+    dest.create({ intermediates: true, overwrite: true });
+
+    const out = dest.open(FileMode.WriteOnly);
     let totalBytes = 0;
 
-    for (let i = 0; i < totalChunks; i++) {
-      const padded = String(i).padStart(6, '0');
-      const chunkPath = `${dir}/chunk_${padded}`;
-      const b64 = await FileSystem.readAsStringAsync(chunkPath, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
-      if (!b64) {
-        throw new Error(`Missing chunk #${i} during reassembly`);
+    try {
+      for (let i = 0; i < totalChunks; i++) {
+        const padded = String(i).padStart(6, '0');
+        const chunkPath = `${dir}/chunk_${padded}`;
+        const chunkFile = new File(chunkPath);
+
+        let bytes: Uint8Array;
+        try {
+          bytes = chunkFile.bytesSync();
+        } catch {
+          throw new Error(`Missing chunk #${i} during reassembly`);
+        }
+        if (!bytes || bytes.length === 0) {
+          throw new Error(`Missing chunk #${i} during reassembly`);
+        }
+
+        out.offset = totalBytes;
+        out.writeBytes(bytes);
+        totalBytes += bytes.length;
+
+        // Reclaim space immediately.
+        try {
+          chunkFile.delete();
+        } catch {
+          // ignore
+        }
+
+        if (onProgress && i % 128 === 0) {
+          onProgress(i + 1, totalChunks);
+        }
+
+        // Keep the UI thread breathing on long videos.
+        if (i % YIELD_EVERY_CHUNKS === YIELD_EVERY_CHUNKS - 1) {
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        }
       }
-      const binaryChunk = base64ToUint8Array(b64);
-      decodedChunks.push(binaryChunk);
-      totalBytes += binaryChunk.byteLength;
+    } finally {
+      this.closeHandle(out);
     }
 
-    // Allocate unified byte array for the full video
-    const finalVideo = new Uint8Array(totalBytes);
-    let offset = 0;
-    for (const chunk of decodedChunks) {
-      finalVideo.set(chunk, offset);
-      offset += chunk.byteLength;
-    }
-
-    const reconstructedHash = calculateSHA256(finalVideo);
-
-    const downloadDir = this.downloadPath;
-    const downloadDirInfo = await FileSystem.getInfoAsync(downloadDir);
-    if (!downloadDirInfo.exists) {
-      await FileSystem.makeDirectoryAsync(downloadDir, { intermediates: true });
-    }
-
-    const destPath = `${downloadDir}${fileName}`;
-    const base64Video = uint8ArrayToBase64(finalVideo);
-    await FileSystem.writeAsStringAsync(destPath, base64Video, {
-      encoding: FileSystem.EncodingType.Base64,
-    });
-
-    assembledFiles.set(destPath, finalVideo);
-
-    return {
-      filePath: destPath,
-      reconstructedHash,
-      byteLength: totalBytes,
-    };
+    return { filePath: destPath, byteLength: totalBytes };
   }
 
   /**
-   * Cleans up temporary chunk files after successful verification or cancellation
+   * Removes temporary chunk files after completion or cancellation.
    */
   static async cleanupTransferChunks(transferId: string): Promise<void> {
     const dir = this.getTransferDir(transferId);
@@ -174,8 +255,25 @@ export class FileSystemService {
   }
 
   /**
-   * Gets reconstructed file bytes for playback or export
+   * Removes a staged copy made by `ensureLocalFile`.
    */
+  static async cleanupStagedSource(transferId: string): Promise<void> {
+    const staged = `${this.stagingPath}${transferId}-source`;
+    try {
+      await FileSystem.deleteAsync(staged, { idempotent: true });
+    } catch {
+      // ignore
+    }
+  }
+
+  static async deleteFile(uri: string): Promise<void> {
+    try {
+      await FileSystem.deleteAsync(uri, { idempotent: true });
+    } catch {
+      // ignore
+    }
+  }
+
   static async getFile(filePath: string): Promise<Uint8Array | null> {
     try {
       const info = await FileSystem.getInfoAsync(filePath);
@@ -186,23 +284,49 @@ export class FileSystemService {
         return base64ToUint8Array(b64);
       }
     } catch {
-      // Fallback
+      // fall through
     }
-    return assembledFiles.get(filePath) || null;
+    return null;
   }
 
   /**
-   * Helper to create mock video file data for testing
+   * Writes a synthetic video to disk for the in-app "send a test video" flow.
+   * Generated in small slices so an arbitrary size never allocates it all at once.
    */
-  static createMockVideo(fileName: string, sizeInBytes: number): { filePath: string; data: Uint8Array; checksum: string } {
-    const data = new Uint8Array(sizeInBytes);
-    // Fill with sample byte patterns
-    for (let i = 0; i < sizeInBytes; i++) {
-      data[i] = (i * 31 + 17) % 256;
+  static async createMockVideoFile(fileName: string, sizeInBytes: number): Promise<string> {
+    await this.ensureDir(this.stagingPath);
+    const filePath = `${this.stagingPath}mock-${this.sanitizeFileName(fileName)}`;
+    const file = new File(filePath);
+    try {
+      file.delete();
+    } catch {
+      // did not exist
     }
-    const checksum = calculateSHA256(data);
-    const filePath = `/storage/emulated/0/Movies/${fileName}`;
-    assembledFiles.set(filePath, data);
-    return { filePath, data, checksum };
+    file.create({ intermediates: true, overwrite: true });
+
+    const handle = file.open(FileMode.WriteOnly);
+    const SLICE = 64 * 1024;
+    const slice = new Uint8Array(SLICE);
+
+    try {
+      let written = 0;
+      while (written < sizeInBytes) {
+        const length = Math.min(SLICE, sizeInBytes - written);
+        for (let i = 0; i < length; i++) {
+          slice[i] = (i * 31 + 17) % 256;
+        }
+        handle.offset = written;
+        handle.writeBytes(length === SLICE ? slice : slice.subarray(0, length));
+        written += length;
+
+        if (written % (1024 * 1024) === 0) {
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        }
+      }
+    } finally {
+      this.closeHandle(handle);
+    }
+
+    return filePath;
   }
 }

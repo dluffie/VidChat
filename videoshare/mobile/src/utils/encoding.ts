@@ -1,71 +1,109 @@
 /**
- * High-performance binary <-> Base64 text-safe encoding
- * Note: Base64 expands binary data by ~33.3% (4 output chars for every 3 input bytes).
- * It is NOT compression.
+ * Binary <-> Base64 text-safe encoding.
+ *
+ * Note: Base64 expands binary data by ~33.3% (4 output chars for every 3 input
+ * bytes). It is NOT compression.
  */
 
 const BASE64_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 
+// Char codes of the alphabet, so the encoder never has to build intermediate strings.
+const B64_CODES = (() => {
+  const codes = new Uint8Array(64);
+  for (let i = 0; i < 64; i++) codes[i] = BASE64_CHARS.charCodeAt(i);
+  return codes;
+})();
+
+// Reverse lookup for decoding.
+const B64_DECODE = (() => {
+  const table = new Int16Array(256).fill(-1);
+  for (let i = 0; i < 64; i++) table[BASE64_CHARS.charCodeAt(i)] = i;
+  return table;
+})();
+
+// Number of output characters flushed to `String.fromCharCode` at a time.
+// Must be a multiple of 4 (each group of 3 input bytes emits 4 chars) and stays
+// well below the argument limit that `Function.prototype.apply` tolerates.
+const ENCODE_BATCH = 4096;
+const encodeBuffer: number[] = new Array(ENCODE_BATCH);
+
+/**
+ * Encodes bytes to base64.
+ *
+ * Built for large payloads: output characters are accumulated into a reusable
+ * code buffer and flushed through `String.fromCharCode` in batches, which avoids
+ * hundreds of thousands of single-character string concatenations.
+ */
 export function uint8ArrayToBase64(bytes: Uint8Array): string {
-  let result = '';
   const len = bytes.byteLength;
-  const extraBytes = len % 3; // 0, 1, or 2
-  const mainLength = len - extraBytes;
+  if (len === 0) return '';
 
-  let a: number, b: number, c: number, d: number;
-  let chunk: number;
+  const mainLength = len - (len % 3);
+  let result = '';
+  let ci = 0;
 
-  // Process 3 bytes at a time -> 4 base64 chars
   for (let i = 0; i < mainLength; i += 3) {
-    chunk = (bytes[i] << 16) | (bytes[i + 1] << 8) | bytes[i + 2];
-    a = (chunk & 16515072) >> 18; // 111111000000000000000000
-    b = (chunk & 258048) >> 12;   // 000000111111000000000000
-    c = (chunk & 4032) >> 6;      // 000000000000111111000000
-    d = chunk & 63;               // 000000000000000000111111
+    const c = (bytes[i] << 16) | (bytes[i + 1] << 8) | bytes[i + 2];
+    encodeBuffer[ci++] = B64_CODES[(c >>> 18) & 63];
+    encodeBuffer[ci++] = B64_CODES[(c >>> 12) & 63];
+    encodeBuffer[ci++] = B64_CODES[(c >>> 6) & 63];
+    encodeBuffer[ci++] = B64_CODES[c & 63];
 
-    result += BASE64_CHARS[a] + BASE64_CHARS[b] + BASE64_CHARS[c] + BASE64_CHARS[d];
+    if (ci === ENCODE_BATCH) {
+      result += String.fromCharCode.apply(null, encodeBuffer);
+      ci = 0;
+    }
   }
 
-  // Handle padding for remaining bytes
+  // Padding for the trailing 1 or 2 bytes.
+  const extraBytes = len - mainLength;
   if (extraBytes === 1) {
-    chunk = bytes[mainLength];
-    a = (chunk & 252) >> 2;
-    b = (chunk & 3) << 4;
-    result += BASE64_CHARS[a] + BASE64_CHARS[b] + '==';
+    const c = bytes[mainLength];
+    encodeBuffer[ci++] = B64_CODES[(c >>> 2) & 63];
+    encodeBuffer[ci++] = B64_CODES[(c & 3) << 4];
+    encodeBuffer[ci++] = 61; // '='
+    encodeBuffer[ci++] = 61;
   } else if (extraBytes === 2) {
-    chunk = (bytes[mainLength] << 8) | bytes[mainLength + 1];
-    a = (chunk & 64512) >> 10;
-    b = (chunk & 1008) >> 4;
-    c = (chunk & 15) << 2;
-    result += BASE64_CHARS[a] + BASE64_CHARS[b] + BASE64_CHARS[c] + '=';
+    const c = (bytes[mainLength] << 8) | bytes[mainLength + 1];
+    encodeBuffer[ci++] = B64_CODES[(c >>> 10) & 63];
+    encodeBuffer[ci++] = B64_CODES[(c >>> 4) & 63];
+    encodeBuffer[ci++] = B64_CODES[(c & 15) << 2];
+    encodeBuffer[ci++] = 61; // '='
   }
 
+  if (ci > 0) {
+    result += String.fromCharCode.apply(null, ci === ENCODE_BATCH ? encodeBuffer : encodeBuffer.slice(0, ci));
+  }
   return result;
 }
 
 export function base64ToUint8Array(base64: string): Uint8Array {
-  // Strip padding and whitespace
   const cleanBase64 = base64.replace(/[^A-Za-z0-9+/]/g, '');
   const len = cleanBase64.length;
   const byteLength = Math.floor((len * 3) / 4);
   const bytes = new Uint8Array(byteLength);
 
   let p = 0;
-  for (let i = 0; i < len; i += 4) {
-    const encoded1 = BASE64_CHARS.indexOf(cleanBase64[i]);
-    const encoded2 = BASE64_CHARS.indexOf(cleanBase64[i + 1]);
-    const encoded3 = BASE64_CHARS.indexOf(cleanBase64[i + 2]);
-    const encoded4 = BASE64_CHARS.indexOf(cleanBase64[i + 3]);
+  let i = 0;
+  for (; i + 4 <= len; i += 4) {
+    const e1 = B64_DECODE[cleanBase64.charCodeAt(i)];
+    const e2 = B64_DECODE[cleanBase64.charCodeAt(i + 1)];
+    const e3 = B64_DECODE[cleanBase64.charCodeAt(i + 2)];
+    const e4 = B64_DECODE[cleanBase64.charCodeAt(i + 3)];
 
-    if (encoded1 !== -1 && encoded2 !== -1) {
-      bytes[p++] = (encoded1 << 2) | (encoded2 >> 4);
-    }
-    if (encoded3 !== -1 && p < byteLength) {
-      bytes[p++] = ((encoded2 & 15) << 4) | (encoded3 >> 2);
-    }
-    if (encoded4 !== -1 && p < byteLength) {
-      bytes[p++] = ((encoded3 & 3) << 6) | (encoded4 & 63);
-    }
+    if (e1 >= 0 && e2 >= 0) bytes[p++] = (e1 << 2) | (e2 >> 4);
+    if (e3 >= 0 && p < byteLength) bytes[p++] = ((e2 & 15) << 4) | (e3 >> 2);
+    if (e4 >= 0 && p < byteLength) bytes[p++] = ((e3 & 3) << 6) | (e4 & 63);
+  }
+
+  // Trailing group without padding characters.
+  const remaining = cleanBase64.length - i;
+  if (remaining >= 2 && p < byteLength) {
+    const e1 = B64_DECODE[cleanBase64.charCodeAt(i)];
+    const e2 = B64_DECODE[cleanBase64.charCodeAt(i + 1)];
+    const e3 = remaining > 2 ? B64_DECODE[cleanBase64.charCodeAt(i + 2)] : -1;
+    if (e1 >= 0 && e2 >= 0) bytes[p++] = (e1 << 2) | (e2 >> 4);
+    if (e3 >= 0 && p < byteLength) bytes[p++] = ((e2 & 15) << 4) | (e3 >> 2);
   }
 
   return bytes;

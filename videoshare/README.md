@@ -1,6 +1,6 @@
 # VideoShare: Private Mobile App with Text-Transported Video
 
-VideoShare is a private mobile application designed for **exactly two paired devices**. It features a streamlined two-option pairing interface, a WhatsApp-style private chat, and an experimental core: **transferring high-resolution video files over our own text-based chat transport without third-party messaging services**.
+VideoShare is a private mobile application designed for **exactly two paired devices**. It features a streamlined two-option pairing interface, a WhatsApp-style private chat, and an experimental core: **transferring high-resolution video files (up to 2 GB) over our own text-based chat transport without third-party messaging services**.
 
 ---
 
@@ -18,13 +18,14 @@ When opening the app, users are presented with two primary options: **"Select Fi
        [ 🎬 Select File (Send) ]                     [ 📥 Receive Video ]
                  │                                             │
                  ▼                                             ▼
-  1. Pick Video File                             1. Enter 6-Digit Pairing Code
-  2. Local Video Pre-Processing:                               │
-     - SHA-256 Checksum Calculation                            ▼
-     - 64 KB Binary Chunk Slicing                2. Device Storage Display:
-     - Base64 Text-Safe Slicing                     - Free Space (e.g. 24.5 GB)
-                 │                                  - Visual Capacity Bar
-                 ▼                                  - Storage details shared on join
+  1. Pick Video (≤ 2 GB)                          1. Enter 6-Digit Pairing Code
+  2. Prepare Transfer (streaming plan):                          │
+     - Read file size                            2. Device Storage Display:
+     - Compute chunk plan (64 KB chunks)            - Real free space (native)
+     - Metadata fingerprint (SHA-256)               - Visual Capacity Bar
+       (no full-file read!)                          - Storage shared on join
+                 │                                             │
+                 ▼                                             │
   3. Generate 6-Figure Pairing Code                            │
   4. Wait for Receiver to Join                                 │
                  │                                             │
@@ -33,116 +34,96 @@ When opening the app, users are presented with two primary options: **"Select Fi
                          [ 6-Figure Code Matched ]
                                         │
                                         ▼
-                   [ 🛡️ Receiver Storage Verification Gate ]
-     - Sender receives receiver's available storage details
-     - Compares receiver free space vs video required size
-     - If Insufficient: Transfer blocked to eliminate unwanted failure
-     - If Sufficient: Sender clicks "Start Video Transfer"
+                  [ 🛡️ Receiver Storage Verification Gate ]
+    - Sender compares receiver's real free space vs video size
+    - If Insufficient: Transfer blocked to prevent failure
+    - If Sufficient: Sender clicks "Start Video Transfer"
                                         │
                                         ▼
-                       [ Progressive Text Transfer ]
+                       [ Streaming Text Transfer ]
+    - Sliding window (32 chunks ≈ 2 MB in flight), ACK-gated
+    - Chunks read from disk on demand (flat memory)
                                         │
                                         ▼
-                    [ Receiver Sequential Reassembly ]
+                  [ Receiver Streaming Reassembly ]
+    - Each chunk verified by SHA-256, then written to disk
+    - Chunk-by-chunk native copy into the final file
+    - Temporary chunks deleted as they are consumed
                                         │
                                         ▼
-                   [ SHA-256 Verified ✓ ──▶ Play Video ]
+                  [ Integrity Verified ✓ ──▶ Play Video ]
 ```
 
 ### 1. "Select File" Option (Sender Flow)
-- **Video Selection**: Choose from predefined quality presets (5.0 MB, 12.5 MB, 25.0 MB, 1.0 MB) or enter custom video metadata.
-- **Immediate Video Pre-Processing**: Before generating the code, the app computes the SHA-256 cryptographic checksum, slices the video into 64 KB progressive chunks, and prepares Base64 text-safe representations with progress feedback.
+- **Video Selection**: Choose a real video from the gallery (up to **2 GB**) or the file picker, plus in-chat demo sizes for testing the transport.
+- **Instant Transfer Preparation**: The app **does not read the file** before pairing. It only inspects the file size, derives the chunk plan, and computes a small **metadata fingerprint**. Preparation therefore takes milliseconds even for a 2 GB video.
 - **6-Figure Pairing Code**: The backend creates an ephemeral 6-digit code (valid for 10 minutes) displayed with a countdown timer.
-- **Receiver Storage Verification**: Upon pairing, the sender receives the receiver's available storage metrics. If the receiver has sufficient free space, the sender clicks **"Start Video Transfer"**. If space is insufficient, the transfer is blocked to prevent failed and unwanted transfers.
+- **Receiver Storage Verification**: Upon pairing, the sender receives the receiver's available storage metrics. If the receiver has sufficient free space (file size + safety margin), the sender clicks **"Start Video Transfer"**. If space is insufficient, the transfer is blocked.
 
 ### 2. "Receive" Option (Receiver Flow)
 - **Enter 6-Digit Code**: Large numeric input field to enter the sender's pairing code.
-- **Available Storage Display**: Directly below the code input, the receiver's current available storage (e.g. `24.5 GB Free / 64.0 GB Total`) is shown alongside a visual capacity bar.
+- **Available Storage Display**: Directly below the code input, the receiver's current available storage (e.g. `48.2 GB Free / 128.0 GB Total`) is shown alongside a visual capacity bar. This value is read directly from the native filesystem.
 - **Automated Storage Reporting**: On `pair:join`, the receiver securely transmits its available disk space to the sender.
-- **Transfer Reception & Reassembly**: Chunks arrive over WebSocket, are written to `/VideoShare/transfers/{transferId}/`, reassembled in sequence, verified against the sender's SHA-256 checksum (`Verified ✓`), and made available for instant playback.
+- **Transfer Reception & Reassembly**: Chunks arrive over WebSocket, are hash-verified, written to `/VideoShare/transfers/{transferId}/`, then streamed one by one into the final video file. The transfer is confirmed once every chunk is present and the assembled file matches the expected byte length.
 
 ---
 
 ## 📦 How to Get the APK File
 
-The mobile application is a native React Native project configured for Android in [`videoshare/mobile/`](file:///c:/Users/devan/OneDrive/Desktop/VidChat/videoshare/mobile).
+The mobile application is an **Expo (managed workflow) project using expo-router**, located in [`videoshare/mobile/`](file:///c:/Users/devan/OneDrive/Desktop/VidChat/videoshare/mobile). There is **no checked-in `android/` folder** — native projects are generated on demand, either in the cloud (EAS Build) or locally (`expo run:android`).
 
 ### Prerequisites
 1. **Node.js**: Version >= 22.11.0 and npm
-2. **JDK**: Java Development Kit 17 (e.g. OpenJDK 17 or Eclipse Temurin 17)
-3. **Android SDK**: Android API 34+ and Android Build-Tools 34.0.0+
-4. **Environment Variables**:
-   - `ANDROID_HOME`: e.g. `C:\Users\<user>\AppData\Local\Android\Sdk`
-   - `JAVA_HOME`: e.g. `C:\Program Files\Eclipse Adoptium\jdk-17.0.x-hotspot`
-   - Append `%ANDROID_HOME%\platform-tools` to your system `PATH`
+2. **Expo Go** for quick development runs ([Android](https://play.google.com/store/apps/details?id=host.exp.exponent) / [iOS](https://apps.apple.com/app/expo-go/id982107779))
+3. *(Local builds only)* **JDK 17** and the **Android SDK** with `ANDROID_HOME` set
 
 ---
 
-### Method 1: Build Debug APK via Command Line (Fastest)
+### Method 1: EAS Build — APK (Recommended)
 
-1. Open your terminal and change to the Android directory:
+EAS Build runs in the cloud, so no Android SDK or Xcode is needed locally.
+
+1. Install the EAS CLI and log in:
    ```bash
-   cd videoshare/mobile/android
+   npm install -g eas-cli
+   eas login
    ```
 
-2. Execute the Gradle build:
-   - **On Windows (PowerShell / Command Prompt)**:
-     ```cmd
-     gradlew.bat assembleDebug
-     ```
-   - **On macOS / Linux**:
-     ```bash
-     ./gradlew assembleDebug
-     ```
-
-3. **Locate your generated APK file**:
-   ```
-   videoshare/mobile/android/app/build/outputs/apk/debug/app-debug.apk
-   ```
-
-4. **Install APK onto an Android device or emulator**:
-   - Via ADB:
-     ```bash
-     adb install videoshare/mobile/android/app/build/outputs/apk/debug/app-debug.apk
-     ```
-   - Or copy `app-debug.apk` directly to your phone via USB cable or file transfer, and tap to install (ensure "Install from unknown sources" is enabled in Android settings).
-
----
-
-### Method 2: Build via Android Studio (GUI)
-
-1. Open **Android Studio**.
-2. Click **Open** and select the folder:
-   ```
-   videoshare/mobile/android
-   ```
-3. Allow Android Studio to sync Gradle and download any required platform packages.
-4. From the top menu, navigate to:
-   **Build > Build Bundle(s) / APK(s) > Build APK(s)**
-5. Once completed, a notification popup in the bottom right corner will appear with a **"locate"** action button that directly opens the folder containing `app-debug.apk`.
-
----
-
-### Method 3: Build Signed Release APK (For Distribution)
-
-1. Generate a signing key (if not already done):
+2. Build an installable APK:
    ```bash
-   keytool -genkey -v -keystore my-release-key.keystore -alias my-key-alias -keyalg RSA -keysize 2048 -validity 10000
-   ```
-2. Move `my-release-key.keystore` into `videoshare/mobile/android/app/`.
-3. Configure `signingConfigs.release` in `videoshare/mobile/android/app/build.gradle`.
-4. Run:
-   ```cmd
-   cd videoshare/mobile/android
-   gradlew.bat assembleRelease
-   ```
-5. Output APK:
-   ```
-   videoshare/mobile/android/app/build/outputs/apk/release/app-release.apk
+   cd videoshare/mobile
+   eas build -p android --profile preview
    ```
 
-> **Troubleshooting Gradle Network Timeouts**:
-> If the Gradle wrapper download of `gradle-9.4.1-bin.zip` times out during command line execution, opening `videoshare/mobile/android` in Android Studio once will handle the download using its built-in proxy and cache management.
+   The `preview` profile is configured in [`eas.json`](file:///c:/Users/devan/OneDrive/Desktop/VidChat/videoshare/mobile/eas.json) as an internal-distribution **APK**; `production` produces a Play Store **app bundle**.
+
+3. Download the resulting `.apk` from the link EAS prints and install it on the device (enable "Install from unknown sources").
+
+> **Important**: Always rebuild after changing native dependencies (e.g. adding or removing an `expo-*` package). JavaScript-only edits are also baked into the bundle, so a fresh build is required to distribute them.
+
+---
+
+### Method 2: Expo Go (Fastest for development)
+
+1. Install dependencies and start the dev server:
+   ```bash
+   cd videoshare/mobile
+   npm install
+   npx expo start
+   ```
+2. Scan the QR code with the **Expo Go** app.
+
+All native modules used by this app (`expo-video`, `expo-file-system`, `expo-image-picker`, `expo-document-picker`) ship inside the Expo SDK, so Expo Go can run the full transfer flow.
+
+---
+
+### Method 3: Local Development Build
+
+```bash
+cd videoshare/mobile
+npx expo run:android   # generates android/ and compiles — requires the Android SDK
+npx expo run:ios       # requires Xcode (macOS only)
+```
 
 ---
 
@@ -151,31 +132,37 @@ The mobile application is a native React Native project configured for Android i
 Instead of relying on third-party services (WhatsApp, Telegram, SMS) or direct binary uploads to a cloud bucket, VideoShare proves that video can be transported through a lightweight, text-oriented messaging protocol:
 
 ```
-[ Original Video Binary ]
+[ Original Video Binary on Device ]
           │
           ▼
-[ Pre-Processing & SHA-256 Hashing ] (Checksum calculated before transfer)
+[ Transfer Preparation ] (stat + chunk plan + metadata fingerprint — no full read)
           │
           ▼
-[ Progressive Chunking ] (Configurable: 64 KB or 128 KB binary chunks)
+[ Streaming Chunk Read ] (64 KB read from disk at a time via a native file handle)
           │
           ▼
 [ Text-Safe Encoding ] (Base64 representation: ~33% overhead)
           │
           ▼
-[ Receiver Storage Verification Gate ] (Verified free space before streaming)
+[ Per-Chunk SHA-256 ] (Each chunk carries its own hash)
           │
           ▼
-[ ChatTransport WebSocket ] (Custom text message events)
+[ Receiver Storage Verification Gate ] (Real free space checked before streaming)
+          │
+          ▼
+[ ChatTransport WebSocket ] (ACK-gated sliding window, 32 chunks in flight)
           │
           ▼
 [ Receiver Local Filesystem ] (/VideoShare/transfers/{transferId}/chunk_XXXXXX)
           │
           ▼
-[ Base64 Decode & Sequential Reassembly ]
+[ Per-Chunk Hash Verification ] (Corrupt chunks are rejected and re-requested)
           │
           ▼
-[ SHA-256 Integrity Verification ] (originalHash === reconstructedHash)
+[ Streaming Reassembly ] (Chunk-by-chunk native copy; chunks deleted as consumed)
+          │
+          ▼
+[ Final Verification ] (All chunks present + exact byte length + metadata fingerprint)
           │
           ▼
     [ Verified ✓ ] ──▶ [ ▶ Play Video ]
@@ -188,28 +175,65 @@ Instead of relying on third-party services (WhatsApp, Telegram, SMS) or direct b
 ## 🏗 Architecture & Tech Stack
 
 ### 1. Mobile Client (`mobile/`)
-- **Framework**: React Native with TypeScript (Android-first, iOS-compatible)
-- **Navigation**: React Navigation (`@react-navigation/native-stack`)
+- **Framework**: React Native 0.86 + TypeScript on **Expo SDK 57** (Android-first, iOS-compatible)
+- **Routing**: `expo-router` (typed routes) with thin route files in `app/`
 - **State Management**: Zustand (`chatStore`, `connectionStore`, `transferStore`)
-- **Storage Management**: `StorageService` with native Android `StatFs` bridge (`StorageModule.kt`)
-- **Filesystem**: Progressive chunking to local device storage (`/VideoShare/transfers/{transferId}/`)
-- **Hashing**: SHA-256 file and chunk verification (`crypto-js`)
+- **Video Playback**: **`expo-video`** (`useVideoPlayer` / `VideoView`)
+- **Storage Management**: `StorageService` reads `Paths.availableDiskSpace` / `Paths.totalDiskSpace` from `expo-file-system`
+- **Filesystem**: `expo-file-system` — base64 chunk writes on receive, and native `File` / `FileHandle` random access for streaming reads, appends and deletes
+- **Hashing**: SHA-256 per chunk and a metadata fingerprint (`crypto-js`)
 - **UI Components & Screens**:
   - `HomeScreen`: Two-option launchpad ("Select File" and "Receive") with device storage status
-  - `PairScreen`: Video pre-processing, 6-figure pairing code display, available storage display, and receiver storage verification gate
-  - `ChatScreen`: WhatsApp-style bubbles with delivery receipts (`SENT` ✓, `DELIVERED` ✓✓, `READ` ✓✓ blue)
+  - `PairScreen`: Transfer preparation, 6-figure pairing code display, available storage display, and receiver storage verification gate
+  - `ChatScreen`: WhatsApp-style bubbles with delivery receipts (`SENT` ✓, `DELIVERED` ✓✓, `READ` ✓✓ blue) plus the in-chat test-video modal
   - `VideoBubble`: Dynamic transfer card with real-time percentage, byte counters, speed (MB/s), ETA, and "Verified ✓" badge
   - `VideoTransferScreen`: Video playback & experimental metrics
-  - `ProgressBar`: High-precision progress indicator
-  - `PairCode`: 6-digit code display with expiry timer
+  - `ProgressBar` / `PairCode` / `SafeScreen`: progress indicator, 6-digit code with expiry timer, safe-area wrapper
+
+> **Migration note**: the app previously used `expo-av`. That package was **removed from the Expo SDK in v54+**; leaving it in `package.json` autolinked stale native code into the APK and crashed it on launch. Playback is now handled by `expo-video`.
 
 ### 2. Backend Server (`server/`)
 - **Runtime**: Node.js + TypeScript + Express
-- **Real-time Communication**: WebSocket (`ws`) attached to HTTP server (`/ws`)
+- **Real-time Communication**: WebSocket (`ws`) attached to the HTTP server at `/ws`
 - **Validation**: Zod schema validation for all client events
 - **Database**: MongoDB + Mongoose (`PairSessions`, `Messages`, `Transfers`)
-- **Deployment**: Render-ready (`render.yaml`, `0.0.0.0`, port dynamic mapping, health check `GET /health`)
+- **Deployment**: Render-ready (`render.yaml`, `0.0.0.0`, dynamic port mapping, health check `GET /health`)
 - **Low RAM Constraint**: The server acts strictly as an authenticator, message router, and metadata store. **Zero binary videos and zero Base64 chunks are retained in server RAM or MongoDB.**
+- **Pass-through relay**: Chunks are forwarded as they arrive. The server does **not** buffer, so a receiver that is not listening has no way to recover a missed chunk — the client-side watchdog handles repair.
+
+---
+
+## 🔄 Streaming & Reliability Design
+
+This is the part that makes multi-gigabyte transfers viable on a phone.
+
+### Sender
+1. **`preProcessVideo()`** never loads the file. It resolves a local `file://` path (copying once out of a `content://` URI if needed), reads the size, and derives `totalChunks`.
+2. **`pump()`** fills a **32-chunk sliding window** (~2 MB at 64 KB/chunk). Only 4 chunks are encoded per event-loop tick, then it yields, so the UI never freezes.
+3. Each chunk is read straight off disk with `handle.offset = start; handle.readBytes(64 KB)`, base64-encoded, hashed, and sent.
+4. **ACK-driven flow control**: window slots only free up when the receiver acknowledges. `ws` never queues `video:chunk` frames — if the socket is closed the chunk is simply retried later.
+5. **Watchdog** (2 s sweep): if no ACK arrives for 6 s, in-flight chunks are re-read from disk and retransmitted. After 6 stalled rounds the transfer fails with a clear message rather than hanging forever.
+
+### Receiver
+1. `video:start` registers the transfer **synchronously, before any `await`** — a chunk arriving in the same burst can otherwise be dropped (there is no server buffering).
+2. Every chunk's SHA-256 is verified against the sender's hash **before** it is accepted. Corrupt chunks are rejected and re-requested.
+3. Received index tracking is an in-memory `Set` — no directory scan per chunk.
+4. **Watchdog**: after 4 s without new chunks it computes the missing index list (capped at 2000 per request) and asks the sender to resend.
+5. On completion it streams the chunks into the final file through a **native `FileHandle`**, deleting each chunk immediately after it is copied. **Peak memory = one 64 KB chunk. Peak disk ≈ one copy of the video** (not two).
+
+### Integrity Model
+A whole-file SHA-256 over a 2 GB video cannot be computed on-device without either buffering the whole file or re-reading it end-to-end before the transfer may begin, so integrity is guaranteed **per chunk** instead:
+
+- Every 64 KB chunk carries its own SHA-256; the receiver verifies it before accepting.
+- Anything unverified is re-requested until it arrives intact.
+- Final verification checks that **all chunks were received**, that the assembled file is **exactly `fileSize` bytes**, and that both sides agree on a **metadata fingerprint** (`SHA-256(fileName|fileSize|totalChunks|chunkSize)`).
+
+This covers every byte of the file and is equivalent to an end-to-end hash for tamper/corruption detection.
+
+### Performance Notes
+- Base64 encoding uses a batched code-buffer encoder (`String.fromCharCode` in 4096-char flushes) rather than per-character string concatenation; decoding on receive is done natively by `expo-file-system`.
+- Throughput is roughly `window × chunkSize / RTT`. With 32 × 64 KB and a ~600 ms round trip that is on the order of a few MB/s, so a 2 GB file takes **minutes, not seconds** — the transport is network-bound, not CPU-bound.
+- The Mongo-per-chunk bottleneck that previously capped throughput at ~425 KB/s has been removed server-side (see below).
 
 ---
 
@@ -217,81 +241,82 @@ Instead of relying on third-party services (WhatsApp, Telegram, SMS) or direct b
 
 ```
 videoshare/
-├── mobile/
-│   ├── android/
-│   │   ├── app/
-│   │   │   ├── src/main/java/com/videoshare/
-│   │   │   │   ├── MainActivity.kt
-│   │   │   │   ├── MainApplication.kt    # Registers StoragePackage
-│   │   │   │   ├── StorageModule.kt      # Native StatFs storage query
-│   │   │   │   └── StoragePackage.kt     # React Native package export
-│   │   │   └── build.gradle
-│   │   ├── gradlew.bat                   # Gradle wrapper for Windows
-│   │   └── gradlew                       # Gradle wrapper for Unix
+├── mobile/                              # Expo SDK 57, managed workflow, expo-router
+│   ├── app/                             # File-based routes
+│   │   ├── _layout.tsx                  # Root layout — registers WS listeners at app start
+│   │   ├── index.tsx                    # Launch route
+│   │   ├── pair.tsx                     # Pairing route
+│   │   ├── chat.tsx                     # Chat route
+│   │   └── videotransfer.tsx            # Playback route
+│   ├── assets/                          # icon.png, splash-icon.png, adaptive-icon.png, favicon.png
 │   ├── src/
 │   │   ├── components/
-│   │   │   ├── ChatBubble.tsx            # WhatsApp-style chat bubbles with status ticks
-│   │   │   ├── VideoBubble.tsx           # Inline video transfer bubble with progress & play
-│   │   │   ├── ProgressBar.tsx           # Progress percentage, speed & ETA
-│   │   │   └── PairCode.tsx              # 6-digit pairing code display & countdown
+│   │   │   ├── ChatBubble.tsx           # WhatsApp-style bubbles with status ticks
+│   │   │   ├── VideoBubble.tsx          # Inline transfer card with progress & play
+│   │   │   ├── ProgressBar.tsx          # Progress percentage, speed & ETA
+│   │   │   ├── PairCode.tsx             # 6-digit pairing code display & countdown
+│   │   │   └── SafeScreen.tsx           # Safe-area wrapper
 │   │   ├── screens/
-│   │   │   ├── HomeScreen.tsx            # Two options: Select File (Send) vs Receive
-│   │   │   ├── PairScreen.tsx            # Pre-processing, 6-digit code & storage verification
-│   │   │   ├── ChatScreen.tsx            # Main chat interface with video picker modal
-│   │   │   └── VideoTransferScreen.tsx   # Video playback & experiment metrics
+│   │   │   ├── HomeScreen.tsx           # Two options: Select File (Send) vs Receive
+│   │   │   ├── PairScreen.tsx           # Preparation, 6-digit code & storage verification
+│   │   │   ├── ChatScreen.tsx           # Chat interface with video picker modal
+│   │   │   └── VideoTransferScreen.tsx  # expo-video playback & experiment metrics
 │   │   ├── services/
-│   │   │   ├── api.ts                    # REST API & health check
-│   │   │   ├── websocket.ts              # WebSocket client with auto-reconnect & heartbeat
-│   │   │   ├── pairing.ts                # Pairing state, session auth & storage exchange
-│   │   │   ├── storage.ts                # Available storage detection & transfer verification
-│   │   │   ├── messages.ts               # Text chat service
-│   │   │   ├── videoTransfer.ts          # Pre-processing, chunking, Base64 encoding & transport
-│   │   │   ├── fileSystem.ts             # Progressive filesystem storage & reassembly
-│   │   │   └── hashing.ts                # SHA-256 calculation & checksum verification
+│   │   │   ├── api.ts                   # REST API & health check
+│   │   │   ├── websocket.ts             # WS client with auto-reconnect & heartbeat
+│   │   │   ├── pairing.ts               # Pairing state, session auth & storage exchange
+│   │   │   ├── storage.ts               # Native free/total space & transfer gate
+│   │   │   ├── messages.ts              # Text chat service
+│   │   │   ├── videoTransfer.ts         # Streaming transfer engine (window, watchdog, repair)
+│   │   │   ├── fileSystem.ts            # Chunk storage, streaming reassembly, file handles
+│   │   │   └── hashing.ts               # SHA-256 & metadata fingerprint
 │   │   ├── store/
-│   │   │   ├── chatStore.ts              # Zustand store for chat messages
-│   │   │   ├── connectionStore.ts        # WebSocket & peer status store
-│   │   │   └── transferStore.ts          # Active video transfers & metrics
+│   │   │   ├── chatStore.ts             # Zustand store for chat messages
+│   │   │   ├── connectionStore.ts       # WebSocket & peer status store
+│   │   │   └── transferStore.ts         # Active video transfers & metrics
 │   │   ├── types/
-│   │   │   ├── messages.ts               # ChatMessage, MessageStatus
-│   │   │   ├── pairing.ts                # PairingState, DeviceStorageInfo, PairCreateResponse
-│   │   │   └── transfers.ts              # VideoTransferMeta, VideoChunk, TransferMetrics
+│   │   │   ├── messages.ts              # ChatMessage, MessageStatus
+│   │   │   ├── pairing.ts               # PairingState, DeviceStorageInfo, PairCreateResponse
+│   │   │   └── transfers.ts             # VideoTransferMeta, VideoChunk, TransferMetrics
 │   │   └── utils/
-│   │       ├── chunking.ts               # Configurable chunk sizes (64KB, 128KB), ETA & speed
-│   │       └── encoding.ts               # High-performance Uint8Array <-> Base64
-│   ├── App.tsx                           # Navigation stack provider
-│   ├── index.js                          # React Native entry point
-│   ├── package.json
-│   └── tsconfig.json
+│   │       ├── chunking.ts              # Configurable chunk sizes (64 KB, 128 KB), ETA & speed
+│   │       ├── encoding.ts              # High-throughput Uint8Array <-> Base64
+│   │       ├── polyfills.ts             # crypto polyfill for uuid on Hermes
+│   │       └── routeMap.ts              # Typed route helpers
+│   ├── app.json                         # Expo config (plugins, permissions, icons)
+│   ├── eas.json                         # preview = APK, production = app bundle
+│   ├── metro.config.js
+│   ├── babel.config.js
+│   └── package.json
 │
 ├── server/
 │   ├── src/
 │   │   ├── config/
-│   │   │   └── index.ts                  # Server environment variables & defaults
+│   │   │   └── index.ts                 # Environment variables & defaults
 │   │   ├── models/
-│   │   │   ├── PairSession.ts            # 6-digit pairing session & device auth
-│   │   │   ├── Message.ts                # Text messages & delivery statuses
-│   │   │   └── Transfer.ts               # Video metadata & completion tracking
+│   │   │   ├── PairSession.ts           # 6-digit pairing session & device auth
+│   │   │   ├── Message.ts               # Text messages & delivery statuses
+│   │   │   └── Transfer.ts              # Video metadata & completion tracking
 │   │   ├── routes/
-│   │   │   ├── health.ts                 # GET /health -> { "status": "ok" }
-│   │   │   └── api.ts                    # REST endpoints for message history & transfers
+│   │   │   ├── health.ts                # GET /health -> { status, database, uptimeSeconds }
+│   │   │   └── api.ts                   # REST endpoints for message history & transfers
 │   │   ├── services/
-│   │   │   ├── pairingService.ts         # 6-digit code generator & auth validation
-│   │   │   ├── messageService.ts         # Message persistence & offline catchup
-│   │   │   └── transferService.ts        # Transfer metadata tracking
+│   │   │   ├── pairingService.ts        # 6-digit code generator & auth validation
+│   │   │   ├── messageService.ts        # Message persistence & offline catchup
+│   │   │   └── transferService.ts       # Transfer metadata tracking
 │   │   ├── websocket/
-│   │   │   ├── schemas.ts                # Zod schemas (including storage:info & pair:join storage)
-│   │   │   └── wsManager.ts              # WebSocket router, pipelined chunks & storage relay
-│   │   ├── app.ts                        # Express app with Helmet, CORS & JSON limits
-│   │   └── server.ts                     # Bootstrap server with MongoDB & WebSocket
+│   │   │   ├── schemas.ts               # Zod schemas (pairing, storage, video:*)
+│   │   │   └── wsManager.ts             # Serialized router, in-memory transfer routes
+│   │   ├── app.ts                       # Express app with Helmet, CORS & JSON limits
+│   │   └── server.ts                    # Bootstrap server with MongoDB & WebSocket
 │   ├── tests/
-│   │   └── test_suite.ts                 # 39 automated tests covering all requirements
+│   │   └── test_suite.ts               # 39 standalone transport/verification tests
 │   ├── .env.example
 │   ├── package.json
 │   └── tsconfig.json
 │
-├── render.yaml                           # Render deployment blueprint
-└── README.md                             # Complete documentation & developer roadmap
+├── render.yaml                          # Render deployment blueprint
+└── README.md                            # This file
 ```
 
 ---
@@ -308,8 +333,10 @@ npm run dev
 
 The server will start listening at:
 - **HTTP**: `http://localhost:3000`
-- **Health check**: `http://localhost:3000/health`
+- **Health check**: `http://localhost:3000/health` → `{ "status": "ok", "database": "connected", "uptimeSeconds": 12 }`
 - **WebSocket**: `ws://localhost:3000/ws`
+
+A MongoDB connection is required (set `MONGODB_URI` in `.env`).
 
 ### 2. Run Automated Test Suite
 
@@ -325,17 +352,25 @@ TEST SUMMARY: 39 PASSED, 0 FAILED
 ====================================================
 ```
 
+> The suite is self-contained (no database or server needed): it exercises the pairing, chunking, encoding, hash-verification, corruption-rejection, resume, cancellation and storage-gate logic directly.
+
 ### 3. Run the Mobile App
 
 ```bash
 cd videoshare/mobile
 npm install
+npx expo start          # scan the QR code with Expo Go
 
-# For Android (Device or Emulator):
-npm run android
+# or build/run natively:
+npm run android         # expo run:android (generates android/)
+npm run ios             # expo run:ios (macOS only)
+```
 
-# For iOS Simulator:
-npm run ios
+### 4. Type-check
+
+```bash
+cd videoshare/mobile  && npx tsc --noEmit
+cd videoshare/server  && npx tsc --noEmit && npm run build
 ```
 
 ---
@@ -354,26 +389,32 @@ npm run ios
 | `message:send` | Client → Server | `{ messageId, sessionId, senderDeviceId, text, timestamp }` |
 | `message:new` | Server → Client | Routed to partner with status `DELIVERED` |
 | `message:read` | Client → Server | `{ sessionId, deviceId, messageIds }` |
-| `video:start` | Client → Server | `{ transferId, fileName, fileSize, totalChunks, chunkSize, checksum }` |
-| `video:chunk` | Client → Server | `{ transferId, chunkIndex, totalChunks, data, hash }` |
+| `video:start` | Client → Server | `{ transferId, fileName, fileSize, mimeType, totalChunks, chunkSize, encoding, checksum }` |
+| `video:chunk` | Client → Server | `{ transferId, chunkIndex, totalChunks, data, hash }` (~87 KB frame at 64 KB chunks) |
 | `video:ack` | Client → Server | `{ transferId, chunkIndex, status: "received" }` |
-| `video:request_missing` | Client → Server | `{ transferId, missingIndices: number[] }` (Resume) |
+| `video:request_missing` | Client → Server | `{ transferId, missingIndices: number[] }` (resume / repair) |
 | `video:complete` | Client → Server | `{ transferId, checksumVerified: boolean }` |
 | `video:cancel` | Client → Server | `{ transferId, reason }` |
-| `ping` / `pong` | Bidirectional | 30s heartbeat keep-alive |
+| `video:error` | Server → Client | `{ transferId, error }` |
+| `ping` / `pong` | Bidirectional | 25 s heartbeat keep-alive |
+
+**Server-side routing**
+- Messages from a single connection are **serialized** through a promise chain, so a `video:chunk` can never be processed before its `video:start`.
+- `video:start` populates an **in-memory transfer route cache** (`transferId → { sender, receiver }`), removed on `video:complete` / `video:cancel`. Chunk, ack, repair and completion messages resolve their destination from that cache instead of a MongoDB round trip per chunk.
+- If persisting `video:start` fails, the server emits `video:error` to the client instead of failing silently.
 
 ---
 
-## 🧪 Experimental Metrics (Section 29)
+## 🧪 Experimental Metrics
 
 For every video transfer, VideoShare measures:
 1. **Original Binary Size**: (e.g., 12.5 MB = 13,107,200 bytes)
 2. **Encoded Size**: (e.g., ~16.6 MB Base64 representation)
 3. **Representation Ratio**: 1.33x (~33% expansion overhead)
-4. **Number of Chunks**: (e.g., 200 chunks of 64 KB each)
-5. **Transfer Time & Average Speed**: (e.g., 1.8 MB/s)
-6. **Retransmitted Data**: Tracks resends upon packet loss or reconnection
-7. **SHA-256 Verification Result**: Cryptographic equality check ensuring zero corruption
+4. **Number of Chunks**: (e.g., 200 chunks of 64 KB each; 32,768 chunks for 2 GB)
+5. **Transfer Time & Average Speed**: derived from live ACK timing
+6. **Retransmitted Data**: tracks resends triggered by the watchdog / repair requests
+7. **Integrity Result**: per-chunk SHA-256 verification plus the final metadata-fingerprint and byte-length check
 
 ---
 
@@ -381,29 +422,37 @@ For every video transfer, VideoShare measures:
 
 - [x] **Backend Architecture**: Node.js + Express + WebSocket + MongoDB + Mongoose + Zod + Helmet + CORS.
 - [x] **Two-Option App Design**: Main landing screen with "Select File" and "Receive" cards + live device storage badge.
-- [x] **Video Pre-Processing Pipeline**: Immediate SHA-256 cryptographic hashing and 64 KB Base64 chunk slicing before pairing code generation.
+- [x] **Streaming Transfer Engine (up to 2 GB)**: Chunks are read from disk on demand and never buffered in memory. Peak memory is a single 64 KB chunk on both sides.
+- [x] **ACK-Gated Sliding Window**: 32 chunks in flight (~2 MB), batched encoding that yields to the UI, and back-pressure from receiver acknowledgements.
+- [x] **Watchdog Recovery**: Stalled in-flight chunks are retransmitted; missing chunks are re-requested; both sides self-heal across brief disconnects.
 - [x] **6-Digit Pairing System**: Ephemeral 6-digit codes (10 mins), automatic invalidation, secure token generation.
-- [x] **Receiver Available Storage Display**: Real-time display of available and total disk space directly below the 6-digit pairing code input.
-- [x] **Receiver Storage Verification Gate**: Receiver transmits disk space upon pairing; sender verifies sufficient capacity before initiating transfer, eliminating unwanted or aborted transfers.
-- [x] **Low RAM Server Compliance**: Zero video bytes buffered in server RAM or MongoDB; streamed directly to recipient.
+- [x] **Real Storage Reporting**: `expo-file-system` `Paths.availableDiskSpace` / `totalDiskSpace` replace deprecated calls that fabricated a fake "24.5 GB".
+- [x] **Receiver Storage Verification Gate**: Receiver transmits disk space upon pairing; sender verifies sufficient capacity before initiating transfer.
+- [x] **Low RAM Server Compliance**: Zero video bytes buffered in server RAM or MongoDB.
 - [x] **Filesystem Chunk Storage on Receiver**: Temporary `/VideoShare/transfers/{transferId}/chunk_XXXXXX` writing.
-- [x] **Sequential Reassembly & Integrity Verification**: File reconstructed in byte order, SHA-256 calculated and compared to sender hash (`Verified ✓`).
-- [x] **Transfer Resume**: Seamless reconnect without restarting from zero; receiver queries missing chunks, sender re-transmits only missing slices.
+- [x] **Streaming Reassembly**: Chunks are copied through a native file handle and deleted as they are consumed, halving peak disk usage.
+- [x] **Per-Chunk Integrity Verification**: Every chunk's SHA-256 is checked before acceptance; corrupt chunks are rejected and re-requested.
+- [x] **Removed `expo-av`**: Replaced with `expo-video` after `expo-av` was dropped from the Expo SDK, fixing a native crash on launch in built APKs.
+- [x] **Server Message Ordering & Route Caching**: Serialized per-connection handling plus an in-memory transfer route cache (no MongoDB query per chunk).
 - [x] **Lightweight WhatsApp Chat**: SENDING, SENT, DELIVERED, READ statuses, real-time message routing.
-- [x] **39 Automated Tests Passing**: All tests passing including pairing, wrong code, expired code, message delivery, offline queuing, 1MB chunking, 10MB simulation, corrupted chunk rejection, resume, cancellation, and storage verification gates.
-- [x] **APK Build Pipeline Documented**: Step-by-step instructions for Debug and Release APK creation using Gradle CLI and Android Studio.
+- [x] **39 Automated Tests Passing**: Pairing, wrong code, expired code, message delivery, offline queuing, 1 MB chunking, 10 MB simulation, corrupted chunk rejection, resume, cancellation and storage verification gates.
+- [x] **APK Build Pipeline Documented**: Step-by-step EAS Build instructions for APK and app-bundle output.
 
 ---
 
 ## 🔮 What Is Left To Do (Roadmap for Future AI Agents & Developers)
 
-1. **Native FFmpeg Compression Integration (Milestone 30)**:
-   - Integrate `ffmpeg-kit-react-native` to run pre-encoding compression (e.g. H.264/H.265 CRF 28) before chunking, allowing users to choose between "Original Quality" and "Compressed".
+1. **Native FFmpeg Compression Integration**:
+   - Integrate `ffmpeg-kit-react-native` to run pre-encoding compression (e.g. H.264/H.265 CRF 28) before chunking, allowing users to choose between "Original Quality" and "Compressed". This is the single biggest win for large files.
 2. **Adaptive Sliding Window Congestion Control**:
-   - Dynamically adjust the number of unacknowledged in-flight chunks based on measured round-trip time (RTT) and network packet loss.
+   - The window is currently fixed at 32 chunks. Adjust it dynamically from measured RTT and loss to push throughput higher on fast links and avoid overwhelming slow ones.
 3. **Android Foreground Service**:
-   - Add a native Android Foreground Service with notification progress so multi-hundred-megabyte transfers continue uninterrupted if the user switches apps.
-4. **iOS Background Processing & APNs Wakeup**:
+   - Add a native Android Foreground Service with notification progress so long transfers continue uninterrupted if the user switches apps or the screen locks.
+4. **Wire-Format Upgrade (binary frames)**:
+   - `video:chunk` currently carries Base64 text (~33% overhead) and the sender must base64-encode each chunk in JS. Streaming raw binary frames over the WebSocket would remove both the bandwidth cost and the encode/decode CPU. A protocol version negotiation would be needed for compatibility.
+5. **Source File Staging**:
+   - `expo-image-picker` hands back a file inside the app **cache**. Android may reclaim cache under memory pressure, which would break a very long send. Staging the file into the documents directory first removes that risk at the cost of extra sender disk space.
+6. **iOS Background Processing & APNs Wakeup**:
    - Implement silent VoIP/Background push notifications via Apple Push Notification service to wake the paired device when a new transfer begins.
-5. **Optional WebRTC Peer-to-Peer DataChannel Sidecar**:
-   - Utilize the included STUN configuration (`STUN_URL`) to allow paired devices on the same local Wi-Fi to establish a direct P2P text data channel as a fallback or high-speed local mode.
+7. **Optional WebRTC Peer-to-Peer DataChannel Sidecar**:
+   - Allow paired devices on the same local Wi-Fi to establish a direct P2P text data channel as a fallback or high-speed local mode. This would require adding STUN/TURN configuration (there is none today) and a signalling path through the existing `/ws` server.

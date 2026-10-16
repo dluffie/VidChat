@@ -52,6 +52,12 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({ navigation }) => {
     // Initialize VideoTransferService listeners
     VideoTransferService.init();
 
+    // Render transfers in both directions. Transfers the user did not start
+    // themselves (incoming videos) are surfaced here too.
+    const unsubscribeTransfers = VideoTransferService.subscribeProgress((progress) => {
+      upsertTransfer(progress);
+    });
+
     // Listen for new incoming text messages
     const handleNewMessage = (msg: ChatMessage) => {
       addMessage(msg);
@@ -83,13 +89,14 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({ navigation }) => {
     ws.on('peer:status', handlePeerStatus);
 
     return () => {
+      unsubscribeTransfers();
       ws.off('message:new', handleNewMessage);
       ws.off('message:sent', handleMessageSent);
       ws.off('message:delivered', handleMessageDelivered);
       ws.off('message:read', handleMessageRead);
       ws.off('peer:status', handlePeerStatus);
     };
-  }, [addMessage, updateMessageStatus, updateMultipleStatuses, setPeerStatus]);
+  }, [addMessage, updateMessageStatus, updateMultipleStatuses, setPeerStatus, upsertTransfer]);
 
   const handleSendMessage = () => {
     if (!inputText.trim()) return;
@@ -110,12 +117,13 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({ navigation }) => {
       const sizeInBytes = selectedVideoSizeMb * 1024 * 1024;
       const fileName = customVideoName || 'holiday.mp4';
 
-      // Generate video binary data for testing transport
-      const mockVideo = FileSystemService.createMockVideo(fileName, sizeInBytes);
+      // Materialise the synthetic video on disk (streamed in slices) so the
+      // normal file-streaming transfer path is exercised end to end.
+      const mockFilePath = await FileSystemService.createMockVideoFile(fileName, sizeInBytes);
 
-      const transferId = await VideoTransferService.sendVideo(
+      const transferId = await VideoTransferService.sendVideoFromFile(
+        mockFilePath,
         fileName,
-        mockVideo.data,
         'video/mp4',
         selectedChunkSize,
         {
@@ -123,7 +131,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({ navigation }) => {
             upsertTransfer(progress);
           },
           onComplete: (filePath, metrics) => {
-            console.log(`[VideoTransfer] Transfer ${transferId} complete! Verified SHA-256`);
+            console.log(`[VideoTransfer] Transfer ${transferId} complete! Verified`);
           },
           onError: (error) => {
             console.error(`[VideoTransfer] Transfer ${transferId} failed:`, error);

@@ -1,6 +1,6 @@
 # VideoShare: Private Mobile App with Text-Transported Video
 
-VideoShare is a private mobile application designed for **exactly two paired devices**. It features a streamlined two-option pairing interface, a WhatsApp-style private chat, and an experimental core: **transferring high-resolution video files over our own text-based chat transport without third-party messaging services**.
+VideoShare is a private mobile application designed for **exactly two paired devices**. It features a streamlined two-option pairing interface, a WhatsApp-style private chat, and an experimental core: **transferring high-resolution video files up to 2 GB over our own text-based chat transport without third-party messaging services**.
 
 ---
 
@@ -18,57 +18,58 @@ When opening the app, users are greeted with two primary, distinct options:
        [ 🎬 Select File (Send) ]                     [ 📥 Receive Video ]
                  │                                             │
                  ▼                                             ▼
-  1. Pick Video File                             1. Enter 6-Digit Pairing Code
-  2. Local Video Pre-Processing:                               │
-     - SHA-256 Checksum Calculation                            ▼
-     - 64 KB Binary Chunk Slicing                2. Device Storage Display:
-     - Base64 Text-Safe Slicing                     - Free Space (e.g. 24.5 GB)
-                 │                                  - Visual Capacity Bar
-                 ▼                                  - Storage details shared on join
-  3. Generate 6-Figure Pairing Code                            │
-  4. Wait for Receiver to Join                                 │
+  1. Pick Video File (≤ 2 GB)                     1. Enter 6-Digit Pairing Code
+  2. Prepare Transfer (no full read!):                          │
+     - File size + chunk plan (64 KB)               2. Device Storage Display:
+     - Metadata fingerprint (SHA-256)                  - Real free space (native)
+                 │                                      - Visual Capacity Bar
+                 ▼                                      - Storage details shared on join
+  3. Generate 6-Figure Pairing Code                             │
+  4. Wait for Receiver to Join                                  │
                  │                                             │
                  └──────────────────────┬──────────────────────┘
                                         ▼
                          [ 6-Figure Code Matched ]
                                         │
                                         ▼
-                   [ 🛡️ Receiver Storage Verification Gate ]
-     - Sender verifies receiver's free space against video file size
-     - If Insufficient: Transfer blocked to eliminate unwanted failure
-     - If Sufficient: Sender clicks "Start Video Transfer"
+                  [ 🛡️ Receiver Storage Verification Gate ]
+    - Sender verifies receiver's real free space against video size
+    - If Insufficient: Transfer blocked to prevent failure
+    - If Sufficient: Sender clicks "Start Video Transfer"
                                         │
                                         ▼
-                       [ Progressive Text Transfer ]
+                       [ Streaming Text Transfer ]
+    - 32-chunk sliding window, ACK-gated; chunks read from disk on demand
                                         │
                                         ▼
-                    [ Receiver Sequential Reassembly ]
+                  [ Receiver Streaming Reassembly ]
+    - Each chunk hash-verified, written to disk, then copied into the video
                                         │
                                         ▼
-                   [ SHA-256 Verified ✓ ──▶ Play Video ]
+                  [ Integrity Verified ✓ ──▶ Play Video ]
 ```
 
 ### 1. "Select File" Option (Sender Flow)
-1. **File Selection**: Choose from preset demo clips (5 MB, 12.5 MB, 25 MB, 1 MB) or specify custom video files.
-2. **Instant Video Pre-Processing**: Before generating the pairing code, the app computes the file's SHA-256 cryptographic checksum, slices the video into 64 KB chunks, and prepares Base64 text-safe encoding.
+1. **File Selection**: Choose a real video from the gallery or file picker (up to **2 GB**), or pick one of the demo sizes for testing the transport.
+2. **Instant Transfer Preparation**: The app **does not read the file** — it inspects the size, derives the 64 KB chunk plan, and computes a small metadata fingerprint. This takes milliseconds even for a 2 GB video, because the bytes are streamed off disk later.
 3. **6-Figure Pairing Code**: The backend generates a 6-digit code (valid for 10 minutes) displayed with a countdown timer.
-4. **Receiver Storage Verification**: When the receiver joins, the sender receives the receiver's available storage details. The sender verifies if the receiver has enough space (`availableBytes >= requiredBytes`) before starting the transfer, eliminating unwanted or failing transfers.
+4. **Receiver Storage Verification**: When the receiver joins, the sender receives the receiver's real available storage. The sender verifies `availableBytes >= requiredBytes` (+ safety margin) before starting, eliminating doomed transfers.
 
 ### 2. "Receive" Option (Receiver Flow)
 1. **Enter 6-Digit Code**: Numeric input field to enter the sender's pairing code.
-2. **Available Storage Display**: Directly below the code input, the receiver's available device storage (e.g., `24.5 GB Free / 64.0 GB Total`) is displayed with a graphical capacity meter.
+2. **Available Storage Display**: Directly below the code input, the receiver's available device storage (e.g., `48.2 GB Free / 128.0 GB Total`) is displayed with a graphical capacity meter, read straight from the native filesystem.
 3. **Storage Reporting**: Upon pairing, storage metrics are securely shared with the sender for verification.
-4. **Transfer Reception**: Once the sender initiates transfer, chunks stream across WebSocket text transport, write sequentially to local storage, reassemble, and verify integrity via SHA-256 (`Verified ✓`).
+4. **Transfer Reception**: Chunks stream across the WebSocket text transport, each is SHA-256 verified before being written to disk, then reassembled and confirmed (`Verified ✓`).
 
 ---
 
 ## 📦 Running & Building the App
 
-The mobile application is an **Expo (managed workflow)** project using **expo-router**, located in [`videoshare/mobile/`](file:///c:/Users/devan/OneDrive/Desktop/VidChat/videoshare/mobile).
+The mobile application is an **Expo (managed workflow)** project using **expo-router**, located in [`videoshare/mobile/`](file:///c:/Users/devan/OneDrive/Desktop/VidChat/videoshare/mobile). Playback uses **`expo-video`** (`expo-av` was removed from the Expo SDK and had to be dropped).
 
 ### Prerequisites
 - **Node.js**: >= 22.11.0 and npm
-- **Expo Go** app installed on your phone ([Android](https://play.google.com/store/apps/details?id=host.exp.exponent) / [iOS](https://apps.apple.com/app/expo-go/id982107779))
+- **Expo Go** app installed on your phone ([Android](https://play.google.com/store/apps/details?id=host.exp.exponent) / [iOS](https://apps.apple.com/app/expo-go/id982107779)) — every native module used is part of the Expo SDK, so Expo Go runs the full flow
 
 ---
 
@@ -97,13 +98,13 @@ The mobile application is an **Expo (managed workflow)** project using **expo-ro
    eas login
    ```
 
-2. Configure the build:
+2. Configure the build (config is already committed in [`eas.json`](file:///c:/Users/devan/OneDrive/Desktop/VidChat/videoshare/mobile/eas.json)):
    ```bash
    cd videoshare/mobile
    eas build:configure
    ```
 
-3. Build for Android (APK):
+3. Build for Android (installable **APK**):
    ```bash
    eas build -p android --profile preview
    ```
@@ -113,7 +114,7 @@ The mobile application is an **Expo (managed workflow)** project using **expo-ro
    eas build -p ios
    ```
 
-> **Note**: EAS Build runs in the cloud — no Android SDK or Xcode required locally.
+> **Note**: EAS Build runs in the cloud — no Android SDK or Xcode required locally. Any change to native dependencies requires a fresh build.
 
 ---
 
@@ -121,7 +122,7 @@ The mobile application is an **Expo (managed workflow)** project using **expo-ro
 
 ```bash
 cd videoshare/mobile
-npx expo run:android   # requires Android SDK
+npx expo run:android   # generates android/ and compiles — requires Android SDK
 npx expo run:ios       # requires Xcode (macOS only)
 ```
 
@@ -130,31 +131,37 @@ npx expo run:ios       # requires Xcode (macOS only)
 ## 🎯 The Core Experiment: Video Over Text Transport
 
 ```
-[ Original Video Binary ]
+[ Original Video Binary on Device ]
           │
           ▼
-[ Pre-Processing & SHA-256 Hashing ] (Checksum calculated before transfer)
+[ Transfer Preparation ] (size + chunk plan + metadata fingerprint — no full read)
           │
           ▼
-[ Progressive Chunking ] (Configurable: 64 KB or 128 KB binary chunks)
+[ Streaming Chunk Read ] (64 KB at a time via a native file handle)
           │
           ▼
 [ Text-Safe Encoding ] (Base64 representation: ~33% overhead)
           │
           ▼
-[ Receiver Storage Verification Gate ] (Verified free space before streaming)
+[ Per-Chunk SHA-256 ] (Every chunk carries its own hash)
           │
           ▼
-[ ChatTransport WebSocket ] (Custom text message events)
+[ Receiver Storage Verification Gate ] (Real free space verified before streaming)
+          │
+          ▼
+[ ChatTransport WebSocket ] (ACK-gated sliding window, 32 chunks ≈ 2 MB in flight)
           │
           ▼
 [ Receiver Local Filesystem ] (/VideoShare/transfers/{transferId}/chunk_XXXXXX)
           │
           ▼
-[ Base64 Decode & Sequential Reassembly ]
+[ Per-Chunk Hash Verification ] (Corrupt chunks rejected and re-requested)
           │
           ▼
-[ SHA-256 Integrity Verification ] (originalHash === reconstructedHash)
+[ Streaming Reassembly ] (Native chunk-by-chunk copy; chunks deleted as consumed)
+          │
+          ▼
+[ Final Verification ] (All chunks present + exact byte length + metadata fingerprint)
           │
           ▼
     [ Verified ✓ ] ──▶ [ ▶ Play Video ]
@@ -164,21 +171,22 @@ npx expo run:ios       # requires Xcode (macOS only)
 
 ## 📁 Repository Structure
 
-- [`videoshare/mobile/`](file:///c:/Users/devan/OneDrive/Desktop/VidChat/videoshare/mobile): React Native TypeScript application (Android-first, iOS-compatible)
+- [`videoshare/mobile/`](file:///c:/Users/devan/OneDrive/Desktop/VidChat/videoshare/mobile): React Native TypeScript application (Android-first, iOS-compatible) on Expo SDK 57
+  - `app/`: `expo-router` route files (`_layout.tsx` registers the transfer/WebSocket listeners at app start)
   - Screens:
     - [`HomeScreen.tsx`](file:///c:/Users/devan/OneDrive/Desktop/VidChat/videoshare/mobile/src/screens/HomeScreen.tsx): Main landing screen with two options: "Select File" and "Receive" + device storage badge.
-    - [`PairScreen.tsx`](file:///c:/Users/devan/OneDrive/Desktop/VidChat/videoshare/mobile/src/screens/PairScreen.tsx): Video pre-processing, 6-figure pairing code display, available storage display, and receiver storage verification gate.
+    - [`PairScreen.tsx`](file:///c:/Users/devan/OneDrive/Desktop/VidChat/videoshare/mobile/src/screens/PairScreen.tsx): Transfer preparation, 6-figure pairing code display, available storage display, and receiver storage verification gate.
     - [`ChatScreen.tsx`](file:///c:/Users/devan/OneDrive/Desktop/VidChat/videoshare/mobile/src/screens/ChatScreen.tsx): Two-party private chat with inline video transfer bubbles and receipts.
-    - [`VideoTransferScreen.tsx`](file:///c:/Users/devan/OneDrive/Desktop/VidChat/videoshare/mobile/src/screens/VideoTransferScreen.tsx): Real-time metrics and verification details.
+    - [`VideoTransferScreen.tsx`](file:///c:/Users/devan/OneDrive/Desktop/VidChat/videoshare/mobile/src/screens/VideoTransferScreen.tsx): `expo-video` playback plus real-time metrics and verification details.
   - Services:
-    - [`storage.ts`](file:///c:/Users/devan/OneDrive/Desktop/VidChat/videoshare/mobile/src/services/storage.ts): Device storage detection & transfer capacity verification.
-    - [`videoTransfer.ts`](file:///c:/Users/devan/OneDrive/Desktop/VidChat/videoshare/mobile/src/services/videoTransfer.ts): Video pre-processing, chunking, Base64 encoding, transport & resume engine.
+    - [`storage.ts`](file:///c:/Users/devan/OneDrive/Desktop/VidChat/videoshare/mobile/src/services/storage.ts): Native free/total disk reporting & transfer capacity verification.
+    - [`videoTransfer.ts`](file:///c:/Users/devan/OneDrive/Desktop/VidChat/videoshare/mobile/src/services/videoTransfer.ts): Streaming transfer engine — sliding window, watchdog, repair, progress.
     - [`pairing.ts`](file:///c:/Users/devan/OneDrive/Desktop/VidChat/videoshare/mobile/src/services/pairing.ts): 6-digit pairing and device storage metadata exchange.
-    - [`fileSystem.ts`](file:///c:/Users/devan/OneDrive/Desktop/VidChat/videoshare/mobile/src/services/fileSystem.ts): Progressive chunk filesystem storage & reassembly.
-    - [`hashing.ts`](file:///c:/Users/devan/OneDrive/Desktop/VidChat/videoshare/mobile/src/services/hashing.ts): SHA-256 cryptographic verification.
+    - [`fileSystem.ts`](file:///c:/Users/devan/OneDrive/Desktop/VidChat/videoshare/mobile/src/services/fileSystem.ts): Chunk storage, streaming reassembly, native file handles.
+    - [`hashing.ts`](file:///c:/Users/devan/OneDrive/Desktop/VidChat/videoshare/mobile/src/services/hashing.ts): SHA-256 per-chunk verification & metadata fingerprint.
 - [`videoshare/server/`](file:///c:/Users/devan/OneDrive/Desktop/VidChat/videoshare/server): Node.js + TypeScript + Express + WebSocket + MongoDB backend
-  - WebSocket routing: real-time streaming, acknowledgement windows, receiver storage relay.
-  - Automated Tests: **39 end-to-end tests passing**.
+  - WebSocket routing: serialized per-connection handling, in-memory transfer route cache (no DB query per chunk), acknowledgement windows, receiver storage relay.
+  - Automated Tests: **39 tests passing** (`npx tsx tests/test_suite.ts`).
 - [`render.yaml`](file:///c:/Users/devan/OneDrive/Desktop/VidChat/render.yaml): Render deployment configuration blueprint.
 
 ---
@@ -202,7 +210,7 @@ npx tsx tests/test_suite.ts
 ```bash
 cd videoshare/mobile
 npm install
-npx expo start      # scan QR with Expo Go app
+npx expo start      # scan QR with the Expo Go app
 ```
 
-For in-depth architecture details and protocol specifications, see [`videoshare/README.md`](file:///c:/Users/devan/OneDrive/Desktop/VidChat/videoshare/README.md).
+For in-depth architecture details, the streaming/reliability design, the WebSocket protocol table and the developer roadmap, see [`videoshare/README.md`](file:///c:/Users/devan/OneDrive/Desktop/VidChat/videoshare/README.md).

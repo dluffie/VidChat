@@ -32,6 +32,11 @@ export class WebSocketManager {
   private sessionClients: Map<string, Set<string>> = new Map(); // sessionId -> Set<deviceId>
   private heartbeatInterval: NodeJS.Timeout | null = null;
 
+  // transferId -> routing info. Cached in memory so that routing a chunk does not
+  // require a MongoDB round-trip (with 64 KB chunks that is one query per frame).
+  private transferRoutes: Map<string, { senderDeviceId: string; receiverDeviceId: string }> =
+    new Map();
+
   constructor(wss: WebSocketServer) {
     this.wss = wss;
     this.init();
@@ -47,7 +52,7 @@ export class WebSocketManager {
         }
       });
 
-      ws.on('message', async (data: Buffer | string) => {
+      const processMessage = async (data: Buffer | string) => {
         try {
           const raw = typeof data === 'string' ? data : data.toString('utf-8');
           const payload = JSON.parse(raw);
@@ -286,19 +291,37 @@ export class WebSocketManager {
                 return;
               }
 
-              // Register transfer metadata in MongoDB
-              await TransferService.initTransfer({
-                transferId: parsed.transferId,
-                sessionId: parsed.sessionId,
+              // Register transfer metadata in MongoDB (best effort; routing below
+              // uses the in-memory cache so the chunk path never hits the DB).
+              try {
+                await TransferService.initTransfer({
+                  transferId: parsed.transferId,
+                  sessionId: parsed.sessionId,
+                  senderDeviceId: parsed.senderDeviceId,
+                  receiverDeviceId: partnerDeviceId,
+                  fileName: parsed.fileName,
+                  fileSize: parsed.fileSize,
+                  mimeType: parsed.mimeType,
+                  totalChunks: parsed.totalChunks,
+                  chunkSize: parsed.chunkSize,
+                  encoding: parsed.encoding,
+                  checksum: parsed.checksum,
+                });
+              } catch (err: any) {
+                console.error('[WS] Failed to register transfer:', err?.message || err);
+                this.safeSend(ws, {
+                  action: 'video:error',
+                  transferId: parsed.transferId,
+                  error: `Could not register transfer: ${err?.message || 'database error'}`,
+                });
+                return;
+              }
+
+              // Cache routing info immediately so chunks can be relayed without
+              // touching the database.
+              this.transferRoutes.set(parsed.transferId, {
                 senderDeviceId: parsed.senderDeviceId,
                 receiverDeviceId: partnerDeviceId,
-                fileName: parsed.fileName,
-                fileSize: parsed.fileSize,
-                mimeType: parsed.mimeType,
-                totalChunks: parsed.totalChunks,
-                chunkSize: parsed.chunkSize,
-                encoding: parsed.encoding,
-                checksum: parsed.checksum,
               });
 
               // Forward metadata to receiver
@@ -329,7 +352,8 @@ export class WebSocketManager {
 
             case 'video:chunk': {
               const parsed = VideoChunkSchema.parse(payload);
-              const transfer = await TransferService.getTransfer(parsed.transferId);
+              // Hot path: resolved from the in-memory cache, no DB round-trip.
+              const transfer = await this.resolveTransfer(parsed.transferId);
               if (!transfer) {
                 this.safeSend(ws, { action: 'video:error', transferId: parsed.transferId, error: 'Transfer not found' });
                 return;
@@ -359,7 +383,7 @@ export class WebSocketManager {
 
             case 'video:ack': {
               const parsed = VideoAckSchema.parse(payload);
-              const transfer = await TransferService.getTransfer(parsed.transferId);
+              const transfer = await this.resolveTransfer(parsed.transferId);
               if (!transfer) return;
 
               // Forward acknowledgement back to sender
@@ -377,7 +401,7 @@ export class WebSocketManager {
 
             case 'video:request_missing': {
               const parsed = VideoRequestMissingSchema.parse(payload);
-              const transfer = await TransferService.getTransfer(parsed.transferId);
+              const transfer = await this.resolveTransfer(parsed.transferId);
               if (!transfer) return;
 
               // Forward missing indices list to sender
@@ -394,7 +418,7 @@ export class WebSocketManager {
 
             case 'video:complete': {
               const parsed = VideoCompleteSchema.parse(payload);
-              const transfer = await TransferService.getTransfer(parsed.transferId);
+              const transfer = await this.resolveTransfer(parsed.transferId);
               if (!transfer) return;
 
               if (parsed.checksumVerified) {
@@ -419,15 +443,17 @@ export class WebSocketManager {
                   });
                 }
               }
+              this.transferRoutes.delete(parsed.transferId);
               break;
             }
 
             case 'video:cancel': {
               const parsed = VideoCancelSchema.parse(payload);
-              const transfer = await TransferService.getTransfer(parsed.transferId);
+              const transfer = await this.resolveTransfer(parsed.transferId);
               if (!transfer) return;
 
               await TransferService.updateStatus(parsed.transferId, 'cancelled');
+              this.transferRoutes.delete(parsed.transferId);
 
               // Notify both sender and receiver
               const senderConn = this.clients.get(transfer.senderDeviceId);
@@ -456,12 +482,22 @@ export class WebSocketManager {
               });
           }
         } catch (err: any) {
+          console.error('[WS] Failed to handle message:', err?.message || err);
           this.safeSend(ws, {
             action: 'error',
             code: 'BAD_REQUEST',
             message: err.message || 'Malformed message format',
           });
         }
+      };
+
+      // Handle messages from a connection strictly in order. Several handlers
+      // await DB writes (video:start registers the transfer before any chunk may
+      // be routed); without serialising, a following video:chunk could be
+      // processed first and rejected with "Transfer not found".
+      let messageQueue: Promise<void> = Promise.resolve();
+      ws.on('message', (data: Buffer | string) => {
+        messageQueue = messageQueue.then(() => processMessage(data));
       });
 
       ws.on('close', () => {
@@ -489,8 +525,35 @@ export class WebSocketManager {
     }, 30000);
   }
 
-  private registerClient(ws: WebSocket, deviceId: string) {
-    this.clients.set(deviceId, {
+  /**
+   * Resolve a transfer's routing info. Checks the in-memory cache first (the
+   * common case for every chunk) and only falls back to MongoDB on a miss.
+   * Database failures are swallowed so callers get a clean `null` instead of a
+   * generic protocol error.
+   */
+  private async resolveTransfer(
+    transferId: string
+  ): Promise<{ senderDeviceId: string; receiverDeviceId: string } | null> {
+    const cached = this.transferRoutes.get(transferId);
+    if (cached) return cached;
+
+    try {
+      const transfer = await TransferService.getTransfer(transferId);
+      if (!transfer) return null;
+
+      const route = {
+        senderDeviceId: transfer.senderDeviceId,
+        receiverDeviceId: transfer.receiverDeviceId,
+      };
+      this.transferRoutes.set(transferId, route);
+      return route;
+    } catch (err: any) {
+      console.warn(`[WS] Transfer lookup failed for ${transferId}:`, err?.message || err);
+      return null;
+    }
+  }
+
+  private registerClient(ws: WebSocket, deviceId: string) {    this.clients.set(deviceId, {
       ws,
       deviceId,
       isAlive: true,

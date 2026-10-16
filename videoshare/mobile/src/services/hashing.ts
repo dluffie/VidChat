@@ -30,3 +30,23 @@ export function calculateSHA256(data: string | Uint8Array): string {
 export function verifyChecksum(expected: string, actual: string): boolean {
   return expected.trim().toLowerCase() === actual.trim().toLowerCase();
 }
+
+/**
+ * Fingerprint of a transfer's metadata.
+ *
+ * A whole-file SHA-256 over a multi-gigabyte video cannot be computed on-device
+ * without either buffering the entire file or re-reading it end to end before the
+ * transfer may start. Integrity of the *content* is instead guaranteed per chunk:
+ * every chunk carries its own SHA-256 which the receiver verifies before it is
+ * accepted, and unresolvable chunks are re-requested. This fingerprint therefore
+ * only pins down the metadata (which file, how big, how it was split) so both
+ * sides can confirm they agree on what is being sent.
+ */
+export function computeTransferFingerprint(
+  fileName: string,
+  fileSize: number,
+  totalChunks: number,
+  chunkSize: number
+): string {
+  return calculateSHA256(`${fileName}|${fileSize}|${totalChunks}|${chunkSize}`);
+}
