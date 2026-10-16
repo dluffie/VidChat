@@ -33,7 +33,8 @@ export type IconName =
   | 'alert'
   | 'sparkle'
   | 'refresh'
-  | 'database';
+  | 'database'
+  | 'copy';
 
 /** Basic-Latin glyphs only: present in Roboto and in every fallback font. */
 const GLYPHS: Partial<Record<IconName, string>> = {
@@ -420,6 +421,43 @@ export const Icon: React.FC<IconProps> = ({ name, size = 20, color, weight, styl
               }}
             />
           ))}
+        </View>
+      );
+    }
+
+    case 'copy': {
+      // Two sheets, deliberately disjoint: the back one is reduced to the
+      // bracket that stays visible, so nothing overlaps and the shape survives
+      // 16 px. Drawing two full outlines instead reads as a smudge at that size.
+      const sheet = size * 0.66;
+      const offset = size * 0.28;
+      return (
+        <View style={[styles.center, box, style]}>
+          <View
+            style={{
+              position: 'absolute',
+              left: offset,
+              top: size * 0.06,
+              width: sheet,
+              height: sheet,
+              borderTopWidth: stroke,
+              borderRightWidth: stroke,
+              borderColor: color,
+              borderTopRightRadius: size * 0.15,
+            }}
+          />
+          <View
+            style={{
+              position: 'absolute',
+              left: size * 0.06,
+              top: offset,
+              width: sheet,
+              height: sheet,
+              borderRadius: size * 0.15,
+              borderWidth: stroke,
+              borderColor: color,
+            }}
+          />
         </View>
       );
     }

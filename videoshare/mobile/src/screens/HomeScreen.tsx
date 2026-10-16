@@ -122,10 +122,13 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
         </View>
 
         <View style={styles.hero}>
-          <Text style={styles.heroTitle}>Send video{'\n'}device to device.</Text>
+          <Text style={styles.heroTitle}>
+            Send <Text style={styles.heroAccent}>2 GB</Text>
+            {'\n'}over a <Text style={styles.heroAccentAlt}>2G</Text> signal.
+          </Text>
           <Text style={styles.heroSubtitle}>
-            Pair two phones with a 6-digit code and stream the file directly. Nothing is
-            stored on the server — it only relays.
+            Pair two phones with a 6-digit code and the file streams straight across. No
+            cloud, no account, no upload — the server only relays.
           </Text>
         </View>
 
@@ -236,6 +239,15 @@ const createStyles = (theme: Theme) => {
     heroTitle: {
       ...typography.display,
       color: c.textPrimary,
+    },
+    // Two-tone emphasis on the numbers: the headline carries the app's whole
+    // thesis (a huge file, a terrible link), so the two figures that make that
+    // claim get the accent colours.
+    heroAccent: {
+      color: c.accent,
+    },
+    heroAccentAlt: {
+      color: c.accentAlt,
     },
     heroSubtitle: {
       ...typography.body,

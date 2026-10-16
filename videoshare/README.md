@@ -1,12 +1,14 @@
 # Convey: Private Mobile App with Text-Transported Video
 
-> **v1.1.0** · formerly "VideoShare"
+> **v1.2.0** · formerly "VideoShare"
+
+> **What's new in v1.2.0**: a one-tap copy button on the sender's pairing code with a live expiry countdown, a rewritten landing headline, and the new launcher icon set.
 
 Convey is a private mobile application designed for **exactly two paired devices**. It features a streamlined two-option pairing interface, a private glass-styled chat, and an experimental core: **transferring high-resolution video files (up to 2 GB) over our own text-based chat transport without third-party messaging services**.
 
 The UI is built on a "liquid glass" design language — a full-screen aurora canvas behind translucent panes, gradient call-to-action buttons and a monochrome, theme-tinted icon set — and ships with **four selectable themes plus a System option** (Aurora Dark, Aurora Light, Claude Warm, Midnight).
 
-> **Name & version**: the app was renamed from *VideoShare* to **Convey** in v1.1.0. The Expo `slug`, the URL `scheme` and the Android/iOS application IDs remain `videoshare` / `com.videoshare.app`, because those are the identifiers the EAS project and any installed build are keyed on. The on-device storage root also moved from `VideoShare/` to `Convey/`, so partial transfers staged by an older build will not resume — finish or cancel them before updating.
+> **Name & version**: the app was renamed from *VideoShare* to **Convey** in v1.1.0. The Expo `slug`, the URL `scheme` and the Android/iOS application IDs remain `videoshare` / `com.videoshare.app`, because those are the identifiers the EAS project and any installed build are keyed on. The on-device storage root also moved from `VideoShare/` to `Convey/`, so partial transfers staged by an older build will not resume — finish or cancel them before updating. The current release is **v1.2.0** (`versionCode` / `buildNumber` **3**).
 
 ---
 
@@ -64,7 +66,7 @@ When opening the app, users are presented with two primary options: **"Select Fi
 ### 1. "Select File" Option (Sender Flow)
 - **Video Selection**: Choose a real video from the gallery (up to **2 GB**) or the file picker, plus in-chat demo sizes for testing the transport.
 - **Instant Transfer Preparation**: The app **does not read the file** before pairing. It only inspects the file size, derives the chunk plan, and computes a small **metadata fingerprint**. Preparation therefore takes milliseconds even for a 2 GB video.
-- **6-Figure Pairing Code**: The backend creates an ephemeral 6-digit code (valid for 10 minutes) displayed as digit tiles.
+- **6-Figure Pairing Code**: The backend creates an ephemeral 6-digit code displayed as digit tiles, with a one-tap **Copy code** button that confirms with a checkmark and a success tint. The expiry pill is a live countdown derived from the server's `expiresAt` (10 minutes by default, configurable via `PAIRING_EXPIRY_MINUTES`), so it cannot drift out of sync with the server the way a hardcoded label would.
 - **Receiver Storage Verification**: Upon pairing, the sender receives the receiver's available storage metrics. If the receiver has sufficient free space (file size + safety margin), the sender starts the transfer. If space is insufficient, the transfer is blocked.
 
 ### 2. "Receive" Option (Receiver Flow)
@@ -473,9 +475,10 @@ For every video transfer, Convey measures:
 ## What We Have Done
 
 - [x] **Backend Architecture**: Node.js + Express + WebSocket + MongoDB + Mongoose + Zod + Helmet + CORS.
+- [x] **Pairing-Code Copy Button & New Landing Copy (v1.2.0)**: The sender's pairing code gained a one-tap **Copy code** button that confirms with a checkmark and a success tint, backed by `expo-clipboard`. The expiry pill is now a live countdown derived from the server's `expiresAt` on a 30-second tick, replacing a hardcoded "10 min" that would have silently lied the moment `PAIRING_EXPIRY_MINUTES` was reconfigured. The landing headline was rewritten from the flat "Send video device to device" to **"Send 2 GB over a 2G signal"**, with the two figures picked out in the theme's accent colours.
 - [x] **Renamed to "Convey" (v1.1.0)**: Display name, on-device storage root (`Convey/`) and all user-facing copy updated. Build identifiers (`slug`, `scheme`, `com.videoshare.app`) are deliberately unchanged so the EAS project and existing installs stay linked.
 - [x] **Keyboard-Safe Inputs**: Every text field — the chat composer, the test-video file-name field and the pairing-code input — now uses `KeyboardAvoidingView` with `behavior="padding"` on **Android as well as iOS**. Since edge-to-edge became the default in Expo SDK 53+, Android no longer honours `adjustResize`, so the previous Android-specific "no avoidance" branch left inputs hidden behind the keyboard.
-- [x] **Emoji-Free Icon Set**: Every colour emoji and dingbat glyph was removed and replaced by a single monochrome, theme-tinted `Icon` component. Geometric shapes (chevrons, checkmark, clock, play triangle, lock, signal bars, framed video glyph, half-filled theme control, refresh arc, database stack) are drawn from plain views, so nothing depends on a font glyph or an emoji fallback font.
+- [x] **Emoji-Free Icon Set**: Every colour emoji and dingbat glyph was removed and replaced by a single monochrome, theme-tinted `Icon` component. Geometric shapes (chevrons, checkmark, clock, play triangle, lock, signal bars, framed video glyph, half-filled theme control, refresh arc, database stack, copy sheets) are drawn from plain views, so nothing depends on a font glyph or an emoji fallback font.
 - [x] **App Icon & Splash**: Launcher icon replaced (the old blue-circle placeholder is gone) with a generated gradient mark in the Aurora palette, plus a correct adaptive foreground inside the Android safe zone, an Android 13+ monochrome layer for themed icons, and a mark-only splash on `#0A0F1D`. Everything is reproducible from `videoshare/mobile/assets/generate-icons.py`.
 - [x] **Complete UI Redesign ("liquid glass")**: Aurora canvas, translucent glass panes, gradient CTAs and a monochrome icon set replacing colour emoji — applied to every screen.
 - [x] **Multi-Theme System**: Four selectable themes (*Aurora Dark*, *Aurora Light*, *Claude Warm*, *Midnight*) plus a **System** option that follows the device, with an in-app appearance picker and persisted selection.

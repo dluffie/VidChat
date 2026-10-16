@@ -26,6 +26,21 @@ export const radius = {
 /** Slightly thicker than a device hairline so glass edges stay visible. */
 export const hairlineWidth = Platform.OS === 'android' ? 0.8 : 0.6;
 
+/**
+ * Tint a theme colour that has no precomputed soft variant.
+ *
+ * The themes hand-write `accentSoft` / `dangerSoft`-style strings, but tinted
+ * surfaces are occasionally needed for one-off states (a confirmed copy, a
+ * verified transfer) where adding a token to all four themes would be noise.
+ * Non-hex inputs are returned untouched so `rgba(...)` tokens pass through.
+ */
+export function withAlpha(color: string, alpha: number): string {
+  const hex = color.startsWith('#') ? color.slice(1) : color;
+  if (!/^[0-9a-f]{6}$/i.test(hex)) return color;
+  const n = parseInt(hex, 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${alpha})`;
+}
+
 export const typography: Record<string, TextStyle> = {
   /** Oversized hero headline. */
   display: {

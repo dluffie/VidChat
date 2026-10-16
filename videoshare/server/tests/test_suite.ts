@@ -93,10 +93,10 @@ async function runAllTests() {
 
   function assert(condition: boolean, testName: string) {
     if (condition) {
-      console.log(`  ✓ [PASS] ${testName}`);
+      console.log(`  [PASS] ${testName}`);
       passed++;
     } else {
-      console.error(`  ✗ [FAIL] ${testName}`);
+      console.error(`  [FAIL] ${testName}`);
       failed++;
     }
   }
@@ -185,7 +185,7 @@ async function runAllTests() {
   }
 
   // Send when receiver is online
-  const msg1 = sendText(deviceA, deviceB, 'Hey 👋', true);
+  const msg1 = sendText(deviceA, deviceB, 'Hey there', true);
   assert(msg1.status === 'DELIVERED', 'Normal message delivered in real-time when receiver is online');
 
   // Send when receiver is offline (phone going offline)
@@ -269,7 +269,7 @@ async function runAllTests() {
   }
 
   const reconstructedChecksum1Mb = sha256(reconstructedVideo1Mb);
-  assert(originalChecksum1Mb === reconstructedChecksum1Mb, `1 MB Video SHA-256 Verification: Verified ✓ (${reconstructedChecksum1Mb.slice(0, 16)}...)`);
+  assert(originalChecksum1Mb === reconstructedChecksum1Mb, `1 MB Video SHA-256 Verification: Verified (${reconstructedChecksum1Mb.slice(0, 16)}...)`);
 
   // -------------------------------------------------------------------------
   // TEST 4: 10 MB Video Transfer & Timing Simulation
@@ -283,7 +283,7 @@ async function runAllTests() {
   const dummy10Mb = new Uint8Array(1024 * 100); // sample representation
   const original10MbHash = sha256(dummy10Mb);
   const recon10MbHash = sha256(dummy10Mb);
-  assert(original10MbHash === recon10MbHash, '10 MB Video reconstructed and verified ✓');
+  assert(original10MbHash === recon10MbHash, '10 MB Video reconstructed and verified');
 
   // -------------------------------------------------------------------------
   // TEST 5: Corrupted Chunk Detection

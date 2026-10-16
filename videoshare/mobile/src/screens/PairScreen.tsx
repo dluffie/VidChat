@@ -97,6 +97,7 @@ export const PairScreen: React.FC<PairScreenProps> = ({ route, navigation }) => 
   const [error, setError] = useState<string | null>(null);
   const [isSuccess, setIsSuccess] = useState<boolean>(false);
   const [pairingCode, setPairingCode] = useState<string>('');
+  const [pairingExpiresAt, setPairingExpiresAt] = useState<string | null>(null);
 
   // Sender / video selector
   const [selectedVideo, setSelectedVideo] = useState<PickedVideoInfo | null>(null);
@@ -316,6 +317,7 @@ export const PairScreen: React.FC<PairScreenProps> = ({ route, navigation }) => 
       setLoading(true);
       const res = await PairingService.createPair();
       setPairingCode(res.pairingCode);
+      setPairingExpiresAt(res.expiresAt ?? null);
       setIsPreProcessing(false);
     } catch (err: any) {
       setIsPreProcessing(false);
@@ -362,6 +364,7 @@ export const PairScreen: React.FC<PairScreenProps> = ({ route, navigation }) => 
     setReceiverStorage(null);
     setStorageCheckResult(null);
     setPairingCode('');
+    setPairingExpiresAt(null);
     setPreProcessedVideo(null);
     setSelectedVideo(null);
     setIsSuccess(false);
@@ -602,7 +605,7 @@ export const PairScreen: React.FC<PairScreenProps> = ({ route, navigation }) => 
                     />
                   </GlassCard>
 
-                  <PairCode code={pairingCode} />
+                  <PairCode code={pairingCode} expiresAt={pairingExpiresAt} />
 
                   <View style={styles.waitingRow}>
                     <View style={styles.waitingDot} />

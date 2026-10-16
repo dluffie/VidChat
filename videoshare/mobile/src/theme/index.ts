@@ -8,6 +8,7 @@ export {
   glow,
   layout,
   hairlineWidth,
+  withAlpha,
 } from './tokens';
 export type {
   Theme,

@@ -1,6 +1,8 @@
 # Convey — Private Mobile App with Text-Transported Video
 
-> **v1.1.0** · formerly "VideoShare"
+> **v1.2.0** · formerly "VideoShare"
+
+> **What's new in v1.2.0**: a one-tap copy button on the sender's pairing code with a live expiry countdown, a rewritten landing headline, and the new launcher icon set. Full list in [What We Have Done](videoshare/README.md#what-we-have-done).
 
 Convey is a private mobile application designed for **exactly two paired devices**. It features a streamlined two-option pairing interface, a private chat, and an experimental core: **transferring high-resolution video files up to 2 GB over our own text-based chat transport without third-party messaging services**.
 
@@ -58,7 +60,7 @@ When opening the app, users are greeted with two primary, distinct options:
 ### 1. "Select File" Option (Sender Flow)
 1. **File Selection**: Choose a real video from the gallery or file picker (up to **2 GB**), or pick one of the demo sizes for testing the transport.
 2. **Instant Transfer Preparation**: The app **does not read the file** — it inspects the size, derives the chunk plan, and computes a small metadata fingerprint. This takes milliseconds even for a 2 GB video, because the bytes are streamed off disk later.
-3. **6-Figure Pairing Code**: The backend generates a 6-digit code (valid for 10 minutes) displayed as tappable digit tiles.
+3. **6-Figure Pairing Code**: The backend generates a 6-digit code displayed as digit tiles, with a one-tap **Copy code** button and a live countdown of the server-issued expiry (10 minutes by default). Tapping the digits copies too.
 4. **Receiver Storage Verification**: When the receiver joins, the sender receives the receiver's real available storage. The sender verifies `availableBytes >= requiredBytes` (+ safety margin) before starting, eliminating doomed transfers.
 
 ### 2. "Receive" Option (Receiver Flow)
@@ -83,7 +85,7 @@ The choice is persisted on device and applied instantly across every screen, inc
 
 ### 4. Iconography
 
-There are **no emoji anywhere in the interface**. Every in-app icon comes from a single monochrome set (`src/components/ui/Icon.tsx`) that inherits the active theme colour, so icons always match the surrounding text. Shapes that have no dependable system glyph — chevrons, the checkmark, the clock, the play triangle, the lock, signal bars, the framed video glyph, the database stack — are drawn from plain views. Only ASCII and Basic-Latin glyphs are used where a glyph is needed at all, which avoids two common Android problems: pictographic characters being replaced by a colour emoji font, and geometric characters missing from the device font.
+There are **no emoji anywhere in the interface**. Every in-app icon comes from a single monochrome set (`src/components/ui/Icon.tsx`) that inherits the active theme colour, so icons always match the surrounding text. Shapes that have no dependable system glyph — chevrons, the checkmark, the clock, the play triangle, the lock, signal bars, the framed video glyph, the database stack, the copy sheets — are drawn from plain views. Only ASCII and Basic-Latin glyphs are used where a glyph is needed at all, which avoids two common Android problems: pictographic characters being replaced by a colour emoji font, and geometric characters missing from the device font.
 
 ### 5. App Icon & Splash
 
