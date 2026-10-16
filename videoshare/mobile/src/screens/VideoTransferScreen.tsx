@@ -44,7 +44,7 @@ export const VideoTransferScreen: React.FC<VideoTransferScreenProps> = ({ route,
       <SafeScreen>
         <View style={styles.centerScreen}>
           <GlassIconButton name="back" accessibilityLabel="Go back" onPress={() => navigation.goBack()} />
-          <Text style={styles.notFoundText}>Transfer session not found</Text>
+          <Text style={styles.notFoundText}>This transfer is no longer available</Text>
         </View>
       </SafeScreen>
     );
@@ -160,7 +160,7 @@ export const VideoTransferScreen: React.FC<VideoTransferScreenProps> = ({ route,
           <Divider style={styles.tightDivider} />
           <InfoRow label="Base64 payload" value={`${formatBytes(encodedSize)}`} />
           <Divider style={styles.tightDivider} />
-          <InfoRow label="Representation ratio" value={`${overheadRatio}x`} />
+          <InfoRow label="Wire overhead" value={`${overheadRatio}x`} />
           <Divider style={styles.tightDivider} />
           <InfoRow label="Chunks" value={`${transfer.totalChunks}`} />
           <Divider style={styles.tightDivider} />

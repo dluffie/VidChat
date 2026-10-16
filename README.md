@@ -1,8 +1,8 @@
 # Convey — Private Mobile App with Text-Transported Video
 
-> **v1.2.0** · formerly "VideoShare"
+> **v1.3.0** · formerly "VideoShare"
 
-> **What's new in v1.2.0**: a one-tap copy button on the sender's pairing code with a live expiry countdown, a rewritten landing headline, and the new launcher icon set. Full list in [What We Have Done](videoshare/README.md#what-we-have-done).
+> **What's new in v1.3.0**: picking a huge video is no longer a silent wait. The sender flow now shows a live elapsed timer, an animated progress bar and a step checklist while the file is read, re-picking is blocked until the pairing code appears, and the wait is cancellable. Every screen's copy was rewritten to say something concrete. Full list in [What We Have Done](videoshare/README.md#what-we-have-done).
 
 Convey is a private mobile application designed for **exactly two paired devices**. It features a streamlined two-option pairing interface, a private chat, and an experimental core: **transferring high-resolution video files up to 2 GB over our own text-based chat transport without third-party messaging services**.
 
@@ -21,21 +21,23 @@ When opening the app, users are greeted with two primary, distinct options:
                                         │
                  ┌──────────────────────┴──────────────────────┐
                  ▼                                             ▼
-       [ Select File (Send) ]                        [ Receive Video ]
+       [ Send a Video ]                               [ Receive a Video ]
                  │                                             │
                  ▼                                             ▼
   1. Pick Video File (≤ 2 GB)                     1. Enter 6-Digit Pairing Code
-  2. Prepare Transfer (no full read!):                          │
+  2. Read the File (visible progress + timer)
+     - Re-picking blocked until it is ready
+  3. Prepare Transfer (no full read!):                          │
      - File size + link-aware chunk plan            2. Device Storage Display:
      - Metadata fingerprint (SHA-256)                  - Real free space (native)
                  │                                      - Visual Capacity Bar
                  ▼                                      - Storage details shared on join
-  3. Generate 6-Figure Pairing Code                             │
-  4. Wait for Receiver to Join                                  │
+  4. Generate 6-Digit Pairing Code                             │
+  5. Wait for Receiver to Join                                  │
                  │                                             │
                  └──────────────────────┬──────────────────────┘
                                         ▼
-                         [ 6-Figure Code Matched ]
+                         [ 6-Digit Code Matched ]
                                         │
                                         ▼
                   [ Receiver Storage Verification Gate ]
@@ -57,13 +59,13 @@ When opening the app, users are greeted with two primary, distinct options:
                   [ Integrity Verified — Play Video ]
 ```
 
-### 1. "Select File" Option (Sender Flow)
+### 1. "Send a video" Option (Sender Flow)
 1. **File Selection**: Choose a real video from the gallery or file picker (up to **2 GB**), or pick one of the demo sizes for testing the transport.
 2. **Instant Transfer Preparation**: The app **does not read the file** — it inspects the size, derives the chunk plan, and computes a small metadata fingerprint. This takes milliseconds even for a 2 GB video, because the bytes are streamed off disk later.
 3. **6-Figure Pairing Code**: The backend generates a 6-digit code displayed as digit tiles, with a one-tap **Copy code** button and a live countdown of the server-issued expiry (10 minutes by default). Tapping the digits copies too.
 4. **Receiver Storage Verification**: When the receiver joins, the sender receives the receiver's real available storage. The sender verifies `availableBytes >= requiredBytes` (+ safety margin) before starting, eliminating doomed transfers.
 
-### 2. "Receive" Option (Receiver Flow)
+### 2. "Receive a video" Option (Receiver Flow)
 1. **Enter 6-Digit Code**: Numeric input field to enter the sender's pairing code.
 2. **Available Storage Display**: Directly below the code input, the receiver's available device storage (e.g., `48.2 GB Free / 128.0 GB Total`) is displayed with a graphical capacity meter, read straight from the native filesystem.
 3. **Storage Reporting**: Upon pairing, storage metrics are securely shared with the sender for verification.
@@ -224,7 +226,7 @@ npx expo run:ios       # requires Xcode (macOS only)
 - [`videoshare/mobile/`](file:///c:/Users/devan/OneDrive/Desktop/VidChat/videoshare/mobile): React Native TypeScript application (Android-first, iOS-compatible) on Expo SDK 57
   - `app/`: `expo-router` route files (`_layout.tsx` mounts the theme provider and registers the transfer/WebSocket listeners at app start)
   - Screens:
-    - [`HomeScreen.tsx`](file:///c:/Users/devan/OneDrive/Desktop/VidChat/videoshare/mobile/src/screens/HomeScreen.tsx): Glass launchpad with a hero headline, live relay/link/storage pills and two action cards ("Select File" / "Receive").
+    - [`HomeScreen.tsx`](file:///c:/Users/devan/OneDrive/Desktop/VidChat/videoshare/mobile/src/screens/HomeScreen.tsx): Glass launchpad with a hero headline, live relay/link/storage pills and two action cards ("Send a video" / "Receive a video").
     - [`PairScreen.tsx`](file:///c:/Users/devan/OneDrive/Desktop/VidChat/videoshare/mobile/src/screens/PairScreen.tsx): Guided send flow, digit-tile pairing code display, and the receiver storage verification gate.
     - [`ChatScreen.tsx`](file:///c:/Users/devan/OneDrive/Desktop/VidChat/videoshare/mobile/src/screens/ChatScreen.tsx): Two-party private chat with inline video transfer bubbles, receipts, a transport profile selector and a keyboard-safe composer.
     - [`VideoTransferScreen.tsx`](file:///c:/Users/devan/OneDrive/Desktop/VidChat/videoshare/mobile/src/screens/VideoTransferScreen.tsx): `expo-video` playback plus real-time metrics and verification details.

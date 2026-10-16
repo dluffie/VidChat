@@ -1,5 +1,14 @@
-import React from 'react';
-import { StyleProp, StyleSheet, Text, View, ViewStyle } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import {
+  Animated,
+  Easing,
+  StyleProp,
+  StyleSheet,
+  Text,
+  View,
+  ViewStyle,
+} from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { hairlineWidth, radius, spacing, typography, useTheme } from '../../theme';
 
 /** Small uppercase section label. */
@@ -102,6 +111,78 @@ export const ProgressTrack: React.FC<{
           backgroundColor: color ?? c.accent,
         }}
       />
+    </View>
+  );
+};
+
+/**
+ * Indeterminate progress: a gradient segment sweeping along a track.
+ *
+ * Used while waiting on something that reports no progress at all — notably the
+ * document and image pickers, which copy an entire video into the app cache
+ * *before* their promise resolves. A determinate bar cannot honestly be drawn
+ * there, and a bare spinner reads as "hung" during a multi-minute wait on a
+ * 2 GB file.
+ */
+export const IndeterminateBar: React.FC<{
+  height?: number;
+  style?: StyleProp<ViewStyle>;
+}> = ({ height = 8, style }) => {
+  const { theme } = useTheme();
+  const c = theme.colors;
+  const progress = useRef(new Animated.Value(0)).current;
+  const [trackWidth, setTrackWidth] = useState(0);
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.timing(progress, {
+        toValue: 1,
+        duration: 1500,
+        easing: Easing.inOut(Easing.ease),
+        useNativeDriver: true,
+      })
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [progress]);
+
+  const segment = Math.max(72, trackWidth * 0.34);
+
+  return (
+    <View
+      onLayout={(event) => setTrackWidth(event.nativeEvent.layout.width)}
+      style={[
+        {
+          height,
+          borderRadius: height / 2,
+          backgroundColor: c.inputBg,
+          overflow: 'hidden',
+        },
+        style,
+      ]}
+    >
+      <Animated.View
+        style={{
+          width: segment,
+          height: '100%',
+          borderRadius: height / 2,
+          transform: [
+            {
+              translateX: progress.interpolate({
+                inputRange: [0, 1],
+                outputRange: [-segment, trackWidth || segment * 2],
+              }),
+            },
+          ],
+        }}
+      >
+        <LinearGradient
+          colors={c.accentGradient}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+          style={StyleSheet.absoluteFill}
+        />
+      </Animated.View>
     </View>
   );
 };

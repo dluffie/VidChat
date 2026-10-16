@@ -254,7 +254,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({ navigation }) => {
               onPress={() => navigation.navigate('Home')}
             />
             <View style={styles.avatar}>
-              <Text style={styles.avatarText}>F</Text>
+              <Text style={styles.avatarText}>P</Text>
               <View
                 style={[
                   styles.avatarDot,
@@ -263,7 +263,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({ navigation }) => {
               />
             </View>
             <View style={styles.headerTitleBlock}>
-              <Text style={styles.headerTitle}>Friend</Text>
+              <Text style={styles.headerTitle}>Paired phone</Text>
               <Text style={styles.peerStatusText}>
                 {online ? 'online' : 'offline'}
                 {link.roundTripMs > 0 ? ` · ${link.label.toLowerCase()} link` : ''}
@@ -319,7 +319,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({ navigation }) => {
 
           <TextInput
             style={styles.textInput}
-            placeholder="Message"
+            placeholder="Type a message"
             placeholderTextColor={theme.colors.textMuted}
             value={inputText}
             onChangeText={setInputText}

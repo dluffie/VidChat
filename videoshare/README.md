@@ -1,20 +1,20 @@
 # Convey: Private Mobile App with Text-Transported Video
 
-> **v1.2.0** · formerly "VideoShare"
+> **v1.3.0** · formerly "VideoShare"
 
-> **What's new in v1.2.0**: a one-tap copy button on the sender's pairing code with a live expiry countdown, a rewritten landing headline, and the new launcher icon set.
+> **What's new in v1.3.0**: selecting a very large video is now a visible, cancellable step instead of a silent multi-minute wait — an animated progress bar, a live elapsed timer and a step checklist, with re-picking blocked until the pairing code appears. All user-facing copy was rewritten to be concrete rather than generic.
 
 Convey is a private mobile application designed for **exactly two paired devices**. It features a streamlined two-option pairing interface, a private glass-styled chat, and an experimental core: **transferring high-resolution video files (up to 2 GB) over our own text-based chat transport without third-party messaging services**.
 
 The UI is built on a "liquid glass" design language — a full-screen aurora canvas behind translucent panes, gradient call-to-action buttons and a monochrome, theme-tinted icon set — and ships with **four selectable themes plus a System option** (Aurora Dark, Aurora Light, Claude Warm, Midnight).
 
-> **Name & version**: the app was renamed from *VideoShare* to **Convey** in v1.1.0. The Expo `slug`, the URL `scheme` and the Android/iOS application IDs remain `videoshare` / `com.videoshare.app`, because those are the identifiers the EAS project and any installed build are keyed on. The on-device storage root also moved from `VideoShare/` to `Convey/`, so partial transfers staged by an older build will not resume — finish or cancel them before updating. The current release is **v1.2.0** (`versionCode` / `buildNumber` **3**).
+> **Name & version**: the app was renamed from *VideoShare* to **Convey** in v1.1.0. The Expo `slug`, the URL `scheme` and the Android/iOS application IDs remain `videoshare` / `com.videoshare.app`, because those are the identifiers the EAS project and any installed build are keyed on. The on-device storage root also moved from `VideoShare/` to `Convey/`, so partial transfers staged by an older build will not resume — finish or cancel them before updating. The current release is **v1.3.0** (`versionCode` / `buildNumber` **4**).
 
 ---
 
 ## App Design & User Workflow
 
-When opening the app, users are presented with two primary options: **"Select File"** (Sender) and **"Receive"** (Receiver).
+When opening the app, users are presented with two primary options: **"Send a video"** (Sender) and **"Receive a video"** (Receiver).
 
 ```
                           ┌──────────────────────────┐
@@ -23,23 +23,25 @@ When opening the app, users are presented with two primary options: **"Select Fi
                                         │
                  ┌──────────────────────┴──────────────────────┐
                  ▼                                             ▼
-       [ ↑ Select File (Send) ]                      [ ↓ Receive Video ]
+       [ ↑ Send a Video ]                            [ ↓ Receive a Video ]
                  │                                             │
                  ▼                                             ▼
   1. Pick Video (≤ 2 GB)                          1. Enter 6-Digit Pairing Code
-  2. Prepare Transfer (streaming plan):                          │
+  2. Read the File (live progress + timer)
+     - Re-picking blocked until it is ready
+  3. Prepare Transfer (streaming plan):                          │
      - Read file size                            2. Device Storage Display:
      - Plan chunks (link-aware size)                - Real free space (native)
      - Metadata fingerprint (SHA-256)               - Visual Capacity Bar
        (no full-file read!)                          - Storage shared on join
                  │                                             │
                  ▼                                             │
-  3. Generate 6-Figure Pairing Code                            │
-  4. Wait for Receiver to Join                                 │
+  4. Generate 6-Digit Pairing Code                            │
+  5. Wait for Receiver to Join                                 │
                  │                                             │
                  └──────────────────────┬──────────────────────┘
                                         ▼
-                         [ 6-Figure Code Matched ]
+                         [ 6-Digit Code Matched ]
                                         │
                                         ▼
                   [ Receiver Storage Verification Gate ]
@@ -63,13 +65,13 @@ When opening the app, users are presented with two primary options: **"Select Fi
                   [ Integrity Verified -> Play Video ]
 ```
 
-### 1. "Select File" Option (Sender Flow)
+### 1. "Send a video" Option (Sender Flow)
 - **Video Selection**: Choose a real video from the gallery (up to **2 GB**) or the file picker, plus in-chat demo sizes for testing the transport.
 - **Instant Transfer Preparation**: The app **does not read the file** before pairing. It only inspects the file size, derives the chunk plan, and computes a small **metadata fingerprint**. Preparation therefore takes milliseconds even for a 2 GB video.
-- **6-Figure Pairing Code**: The backend creates an ephemeral 6-digit code displayed as digit tiles, with a one-tap **Copy code** button that confirms with a checkmark and a success tint. The expiry pill is a live countdown derived from the server's `expiresAt` (10 minutes by default, configurable via `PAIRING_EXPIRY_MINUTES`), so it cannot drift out of sync with the server the way a hardcoded label would.
+- **6-Digit Pairing Code**: The backend creates an ephemeral 6-digit code displayed as digit tiles, with a one-tap **Copy code** button that confirms with a checkmark and a success tint. The expiry pill is a live countdown derived from the server's `expiresAt` (10 minutes by default, configurable via `PAIRING_EXPIRY_MINUTES`), so it cannot drift out of sync with the server the way a hardcoded label would.
 - **Receiver Storage Verification**: Upon pairing, the sender receives the receiver's available storage metrics. If the receiver has sufficient free space (file size + safety margin), the sender starts the transfer. If space is insufficient, the transfer is blocked.
 
-### 2. "Receive" Option (Receiver Flow)
+### 2. "Receive a video" Option (Receiver Flow)
 - **Enter 6-Digit Code**: Large numeric input field to enter the sender's pairing code.
 - **Available Storage Display**: Directly below the code input, the receiver's current available storage (e.g. `48.2 GB Free / 128.0 GB Total`) is shown alongside a visual capacity bar. This value is read directly from the native filesystem.
 - **Automated Storage Reporting**: On `pair:join`, the receiver securely transmits its available disk space to the sender.
@@ -197,7 +199,7 @@ Instead of relying on third-party services (WhatsApp, Telegram, SMS) or direct b
 - **Filesystem**: `expo-file-system` — base64 chunk writes on receive, and native `File` / `FileHandle` random access for streaming reads, appends and deletes
 - **Hashing**: SHA-256 per chunk and a metadata fingerprint (`crypto-js`)
 - **UI Components & Screens**:
-  - `HomeScreen`: Glass launchpad with a hero headline, live relay/link/storage pills, and two action cards ("Select File" / "Receive")
+  - `HomeScreen`: Glass launchpad with a hero headline, live relay/link/storage pills, and two action cards ("Send a video" / "Receive a video")
   - `PairScreen`: Guided 3-step send flow (choose → prepare → share code), pairing code display, and the receiver storage verification gate
   - `ChatScreen`: Glass header with peer presence, unified message + transfer feed, a keyboard-safe composer, and a test-video sheet with an editable file name and a **transport profile selector** (Auto / Fast / Balanced / Data saver)
   - `VideoBubble`: Transfer card with real-time percentage, byte counters, speed, ETA, cancel/resume and a "Verified" state
@@ -475,6 +477,8 @@ For every video transfer, Convey measures:
 ## What We Have Done
 
 - [x] **Backend Architecture**: Node.js + Express + WebSocket + MongoDB + Mongoose + Zod + Helmet + CORS.
+- [x] **Visible, Cancellable File Reading (v1.3.0)**: Picking a near-2 GB video used to look like a freeze. Both native pickers copy the entire file into the app cache *before* their promise resolves and report no progress while doing it, so the screen sat on "Choose a video" with the source buttons still live — minutes of apparent nothing, during which a second pick could be started on top of the first. The sender flow now enters a dedicated **Step 2** window the instant a source is tapped: an animated indeterminate bar, a live `m:ss` elapsed counter, an honest explanation that the file is being copied locally (not uploaded) and a **Cancel** that is never a dead end. Re-picking is impossible until the pairing code appears. A monotonic `workToken` ref guards every `await`, so a cancelled or superseded run can never resurrect a stale screen, and the checklist was retuned to the steps the pipeline actually performs.
+- [x] **Rewritten UI Copy (v1.3.0)**: Every screen's wording was replaced with something concrete — "Send a video" / "Receive a video" landing cards, "Pick your video", "Reading your video", "Give them this code", "Checking their space", "Type their code", "Waiting for the first chunk", "Paired phone" in the chat header. The internal route param is still `select_file`; only user-facing text changed.
 - [x] **Pairing-Code Copy Button & New Landing Copy (v1.2.0)**: The sender's pairing code gained a one-tap **Copy code** button that confirms with a checkmark and a success tint, backed by `expo-clipboard`. The expiry pill is now a live countdown derived from the server's `expiresAt` on a 30-second tick, replacing a hardcoded "10 min" that would have silently lied the moment `PAIRING_EXPIRY_MINUTES` was reconfigured. The landing headline was rewritten from the flat "Send video device to device" to **"Send 2 GB over a 2G signal"**, with the two figures picked out in the theme's accent colours.
 - [x] **Renamed to "Convey" (v1.1.0)**: Display name, on-device storage root (`Convey/`) and all user-facing copy updated. Build identifiers (`slug`, `scheme`, `com.videoshare.app`) are deliberately unchanged so the EAS project and existing installs stay linked.
 - [x] **Keyboard-Safe Inputs**: Every text field — the chat composer, the test-video file-name field and the pairing-code input — now uses `KeyboardAvoidingView` with `behavior="padding"` on **Android as well as iOS**. Since edge-to-edge became the default in Expo SDK 53+, Android no longer honours `adjustResize`, so the previous Android-specific "no avoidance" branch left inputs hidden behind the keyboard.

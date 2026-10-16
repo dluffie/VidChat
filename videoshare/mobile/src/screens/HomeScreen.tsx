@@ -154,8 +154,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
 
         <View style={styles.actions}>
           <ActionCard
-            title="Select File"
-            description="Pick a video, generate a 6-digit code, and start sending as soon as the other device joins."
+            title="Send a video"
+            description="Pick something from your gallery or files, share the 6-digit code, and it starts the moment the other phone joins."
             badge="SENDER"
             icon="upload"
             steps={['Choose', 'Code', 'Send']}
@@ -163,8 +163,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
             onPress={() => navigation.navigate('Pair', { mode: 'select_file' })}
           />
           <ActionCard
-            title="Receive"
-            description="Enter your partner's code. Your free space is checked first so a transfer never runs out of room."
+            title="Receive a video"
+            description="Type the sender's 6-digit code. Your free space is checked first, so a transfer never dies halfway for want of room."
             badge="RECEIVER"
             icon="download"
             steps={['Enter code', 'Check space', 'Receive']}
@@ -181,8 +181,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
             <GlassCard tone="elevated" corner="lg" depth={1} contentStyle={styles.resumeRow}>
               <Icon name="sparkle" size={18} color={theme.colors.accent} />
               <View style={styles.resumeTextBlock}>
-                <Text style={styles.resumeTitle}>Session active</Text>
-                <Text style={styles.resumeBody}>Tap to open chat and transfers</Text>
+                <Text style={styles.resumeTitle}>Still connected</Text>
+                <Text style={styles.resumeBody}>Tap to pick up where you left off</Text>
               </View>
               <Icon name="chevronRight" size={18} color={theme.colors.textMuted} />
             </GlassCard>

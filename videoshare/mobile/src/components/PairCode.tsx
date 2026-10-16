@@ -118,7 +118,7 @@ export const PairCode: React.FC<PairCodeProps> = ({ code, expiresAt }) => {
 
       <View style={styles.hintRow}>
         <View style={styles.pulse} />
-        <Text style={styles.hint}>Waiting for the second device…</Text>
+        <Text style={styles.hint}>Waiting for the other phone…</Text>
       </View>
     </GlassCard>
   );

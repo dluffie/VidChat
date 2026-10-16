@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -18,6 +18,7 @@ import {
   GlassIconButton,
   GradientButton,
   Icon,
+  IndeterminateBar,
   InfoRow,
   Pill,
   ProgressTrack,
@@ -102,6 +103,40 @@ export const PairScreen: React.FC<PairScreenProps> = ({ route, navigation }) => 
   // Sender / video selector
   const [selectedVideo, setSelectedVideo] = useState<PickedVideoInfo | null>(null);
 
+  // Reading the picked file.
+  //
+  // Both native pickers copy the whole video into the app cache *before* their
+  // promise resolves, and neither reports progress while doing it. For a 2 GB
+  // file that is minutes of silence during which the screen previously looked
+  // idle and still offered the source buttons — so the user could start a
+  // second pick on top of the first. `isSelecting` covers that window.
+  const [isSelecting, setIsSelecting] = useState<boolean>(false);
+
+  // Bumped whenever in-flight pick/prepare work should be ignored. Any handler
+  // that awaits re-checks it before touching state, so a cancelled or
+  // superseded run can never resurrect a stale screen.
+  const workToken = useRef(0);
+
+  // Seconds spent reading the picked file. The native pickers report no progress
+  // at all, so a ticking counter is the only honest proof the app is still
+  // working during a multi-minute copy of a very large video.
+  const [readSeconds, setReadSeconds] = useState<number>(0);
+
+  useEffect(() => {
+    if (!isSelecting) {
+      setReadSeconds(0);
+      return;
+    }
+    const startedAt = Date.now();
+    const id = setInterval(() => {
+      setReadSeconds(Math.floor((Date.now() - startedAt) / 1000));
+    }, 1000);
+    return () => clearInterval(id);
+  }, [isSelecting]);
+
+  const formatElapsed = (seconds: number) =>
+    `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+
   // Pre-processing
   const [isPreProcessing, setIsPreProcessing] = useState<boolean>(false);
   const [preProcessProgress, setPreProcessProgress] = useState<number>(0);
@@ -143,7 +178,7 @@ export const PairScreen: React.FC<PairScreenProps> = ({ route, navigation }) => 
 
       if (mode === 'receive') {
         setReceiverWaitingMessage(
-          'Storage details sent to the sender. Waiting for them to confirm and start the transfer…'
+          'Your storage details are with the sender. They will confirm the fit and start — keep this screen open.'
         );
       }
     };
@@ -180,8 +215,27 @@ export const PairScreen: React.FC<PairScreenProps> = ({ route, navigation }) => 
     }
   }, [receiverStorage, preProcessedVideo]);
 
+  /** Opens the busy window. Returns null when work is already in flight. */
+  const beginWork = (): number | null => {
+    if (isSelecting || isPreProcessing) return null;
+    const token = workToken.current + 1;
+    workToken.current = token;
+    setIsSelecting(true);
+    return token;
+  };
+
+  /** True once this run has been cancelled or superseded by a newer one. */
+  const isStale = (token: number) => token !== workToken.current;
+
+  const endWork = (token: number) => {
+    if (!isStale(token)) setIsSelecting(false);
+  };
+
   /** SENDER: pick a video from the camera roll. */
   const handlePickFromGallery = async () => {
+    const token = beginWork();
+    if (token === null) return;
+
     try {
       setError(null);
       if (Platform.OS !== 'web') {
@@ -192,11 +246,15 @@ export const PairScreen: React.FC<PairScreenProps> = ({ route, navigation }) => 
         }
       }
 
+      // Resolves only once the picker has finished copying the file into the
+      // app cache — which is the slow part for a very large video.
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['videos'],
         allowsEditing: false,
         quality: 1,
       });
+
+      if (isStale(token)) return;
 
       if (result.canceled || !result.assets || result.assets.length === 0) {
         return;
@@ -218,6 +276,8 @@ export const PairScreen: React.FC<PairScreenProps> = ({ route, navigation }) => 
         }
       }
 
+      if (isStale(token)) return;
+
       setSelectedVideo({
         uri,
         name: fileName,
@@ -228,19 +288,31 @@ export const PairScreen: React.FC<PairScreenProps> = ({ route, navigation }) => 
         mimeType: asset.mimeType || 'video/mp4',
       });
     } catch (err: any) {
+      if (isStale(token)) return;
       console.error('Error picking video from gallery:', err);
       setError(err.message || 'Failed to pick video from gallery');
+    } finally {
+      endWork(token);
     }
   };
 
   /** SENDER: pick a video from device storage. */
   const handlePickFromFiles = async () => {
+    const token = beginWork();
+    if (token === null) return;
+
     try {
       setError(null);
+      // `copyToCacheDirectory: true` hands us a seekable `file://` path, which
+      // the chunk reader needs — but it also means this promise does not settle
+      // until the entire video has been copied into the cache. That copy is the
+      // long, silent part for a large file.
       const result = await DocumentPicker.getDocumentAsync({
         type: 'video/*',
         copyToCacheDirectory: true,
       });
+
+      if (isStale(token)) return;
 
       if (result.canceled || !result.assets || result.assets.length === 0) {
         return;
@@ -262,6 +334,8 @@ export const PairScreen: React.FC<PairScreenProps> = ({ route, navigation }) => 
         }
       }
 
+      if (isStale(token)) return;
+
       setSelectedVideo({
         uri,
         name: fileName,
@@ -269,8 +343,11 @@ export const PairScreen: React.FC<PairScreenProps> = ({ route, navigation }) => 
         mimeType: asset.mimeType || 'video/mp4',
       });
     } catch (err: any) {
+      if (isStale(token)) return;
       console.error('Error picking video from files:', err);
       setError(err.message || 'Failed to pick file from device');
+    } finally {
+      endWork(token);
     }
   };
 
@@ -290,6 +367,8 @@ export const PairScreen: React.FC<PairScreenProps> = ({ route, navigation }) => 
     }
 
     setError(null);
+    const token = workToken.current + 1;
+    workToken.current = token;
     setIsPreProcessing(true);
     setPreProcessProgress(10);
     setPreProcessStep('Preparing the selected video…');
@@ -305,10 +384,13 @@ export const PairScreen: React.FC<PairScreenProps> = ({ route, navigation }) => 
         selectedVideo.mimeType || 'video/mp4',
         chunkSize,
         (progress, step) => {
+          if (isStale(token)) return;
           setPreProcessProgress(progress);
           setPreProcessStep(step);
         }
       );
+
+      if (isStale(token)) return;
 
       setPreProcessedVideo(preprocessed);
       setPreProcessProgress(100);
@@ -316,15 +398,35 @@ export const PairScreen: React.FC<PairScreenProps> = ({ route, navigation }) => 
 
       setLoading(true);
       const res = await PairingService.createPair();
+
+      if (isStale(token)) return;
+
       setPairingCode(res.pairingCode);
       setPairingExpiresAt(res.expiresAt ?? null);
       setIsPreProcessing(false);
     } catch (err: any) {
+      if (isStale(token)) return;
       setIsPreProcessing(false);
       setError(err.message || 'Pre-processing or pairing code generation failed');
     } finally {
       setLoading(false);
     }
+  };
+
+  /**
+   * SENDER: back out of the reading / preparing window.
+   *
+   * Once the picker's native copy has started it cannot be interrupted, so
+   * bumping the token only guarantees its result is discarded when it lands —
+   * the point is that the user is never trapped on a multi-minute wait.
+   */
+  const handleCancelWork = () => {
+    workToken.current += 1;
+    setIsSelecting(false);
+    setIsPreProcessing(false);
+    setPreProcessProgress(0);
+    setPreProcessStep('');
+    setError(null);
   };
 
   /** SENDER: storage verified — start streaming. */
@@ -446,13 +548,13 @@ export const PairScreen: React.FC<PairScreenProps> = ({ route, navigation }) => 
           {mode === 'select_file' ? (
             <View style={styles.flow}>
               {/* Stage 1 — choose a file */}
-              {!preProcessedVideo && !isPreProcessing && (
+              {!preProcessedVideo && !isPreProcessing && !isSelecting && (
                 <View style={styles.stage}>
                   <SectionLabel>Step 1 of 3</SectionLabel>
-                  <Text style={styles.stageTitle}>Choose a video</Text>
+                  <Text style={styles.stageTitle}>Pick your video</Text>
                   <Text style={styles.stageSubtitle}>
-                    Nothing is uploaded. The file stays on your device and is streamed straight
-                    to the other phone.
+                    Your file is never uploaded. It streams straight across to the other phone,
+                    sliced on the way so a 2 GB video needs no more memory than a photo.
                   </Text>
 
                   {!selectedVideo ? (
@@ -460,18 +562,18 @@ export const PairScreen: React.FC<PairScreenProps> = ({ route, navigation }) => 
                       <SourceOption
                         icon="film"
                         title="Camera roll"
-                        subtitle="Videos from your gallery"
+                        subtitle="Videos already on this phone"
                         onPress={handlePickFromGallery}
                       />
                       <SourceOption
                         icon="database"
                         title="Browse files"
-                        subtitle="Any video in device storage"
+                        subtitle="Anything in device storage"
                         onPress={handlePickFromFiles}
                       />
                       <View style={styles.limitNote}>
                         <Icon name="alert" size={13} color={theme.colors.textMuted} />
-                        <Text style={styles.limitText}>Maximum file size is 2 GB</Text>
+                        <Text style={styles.limitText}>Up to 2 GB per video</Text>
                       </View>
                     </View>
                   ) : (
@@ -527,59 +629,100 @@ export const PairScreen: React.FC<PairScreenProps> = ({ route, navigation }) => 
                 </View>
               )}
 
-              {/* Stage 2 — preparing */}
-              {isPreProcessing && (
+              {/* Stage 2 — reading the file, then preparing the transfer */}
+              {(isSelecting || isPreProcessing) && (
                 <View style={styles.stage}>
                   <SectionLabel>Step 2 of 3</SectionLabel>
-                  <Text style={styles.stageTitle}>Preparing transfer</Text>
-                  <Text style={styles.stageSubtitle}>{preProcessStep}</Text>
+                  <Text style={styles.stageTitle}>
+                    {isSelecting ? 'Reading your video' : 'Preparing transfer'}
+                  </Text>
+                  <Text style={styles.stageSubtitle}>
+                    {isSelecting
+                      ? 'Copying the file into the app so it can be streamed in slices. A very large video takes a few minutes — nothing is being uploaded.'
+                      : preProcessStep}
+                  </Text>
 
                   <GlassCard corner="lg" depth={1} style={styles.preprocessCard}>
-                    <View style={styles.preprocessRow}>
-                      <Text style={styles.preprocessPercent}>{preProcessProgress}%</Text>
-                      <Text style={styles.preprocessStep} numberOfLines={2}>
-                        {preProcessStep}
-                      </Text>
-                    </View>
-                    <ProgressTrack value={preProcessProgress / 100} height={8} style={styles.preprocessTrack} />
+                    {isSelecting ? (
+                      <>
+                        <View style={styles.preprocessRow}>
+                          <Text style={styles.preprocessPercent}>
+                            {formatElapsed(readSeconds)}
+                          </Text>
+                          <Text style={styles.preprocessStep} numberOfLines={2}>
+                            Copying into the app
+                          </Text>
+                        </View>
+                        <IndeterminateBar height={8} style={styles.preprocessTrack} />
+                      </>
+                    ) : (
+                      <>
+                        <View style={styles.preprocessRow}>
+                          <Text style={styles.preprocessPercent}>{preProcessProgress}%</Text>
+                          <Text style={styles.preprocessStep} numberOfLines={2}>
+                            {preProcessStep}
+                          </Text>
+                        </View>
+                        <ProgressTrack
+                          value={preProcessProgress / 100}
+                          height={8}
+                          style={styles.preprocessTrack}
+                        />
+                      </>
+                    )}
 
-                    <View style={styles.checklist}>
-                      {[
-                        { at: 15, label: 'Locating the file on device' },
-                        { at: 45, label: 'Measuring size and planning chunks' },
-                        { at: 80, label: 'Computing transfer fingerprint' },
-                      ].map((item) => {
-                        const done = preProcessProgress >= item.at;
-                        return (
-                          <View key={item.label} style={styles.checkRow}>
-                            <View
-                              style={[
-                                styles.checkMark,
-                                {
-                                  backgroundColor: done ? theme.colors.success : 'transparent',
-                                  borderColor: done
-                                    ? theme.colors.success
-                                    : theme.colors.surfaceBorder,
-                                },
-                              ]}
-                            >
-                              {done && (
-                                <Icon name="check" size={10} color={theme.colors.onAccent} />
-                              )}
+                    {!isSelecting && (
+                      <View style={styles.checklist}>
+                        {[
+                          { at: 15, label: 'File opened for reading' },
+                          { at: 45, label: 'Size measured, chunk plan built' },
+                          { at: 80, label: 'Transfer fingerprint computed' },
+                        ].map((item) => {
+                          const done = preProcessProgress >= item.at;
+                          return (
+                            <View key={item.label} style={styles.checkRow}>
+                              <View
+                                style={[
+                                  styles.checkMark,
+                                  {
+                                    backgroundColor: done ? theme.colors.success : 'transparent',
+                                    borderColor: done
+                                      ? theme.colors.success
+                                      : theme.colors.surfaceBorder,
+                                  },
+                                ]}
+                              >
+                                {done && (
+                                  <Icon name="check" size={10} color={theme.colors.onAccent} />
+                                )}
+                              </View>
+                              <Text
+                                style={[
+                                  styles.checkLabel,
+                                  { color: done ? theme.colors.textPrimary : theme.colors.textMuted },
+                                ]}
+                              >
+                                {item.label}
+                              </Text>
                             </View>
-                            <Text
-                              style={[
-                                styles.checkLabel,
-                                { color: done ? theme.colors.textPrimary : theme.colors.textMuted },
-                              ]}
-                            >
-                              {item.label}
-                            </Text>
-                          </View>
-                        );
-                      })}
-                    </View>
+                          );
+                        })}
+                      </View>
+                    )}
                   </GlassCard>
+
+                  {!loading && (
+                    <View style={styles.cancelRow}>
+                      <GradientButton
+                        label="Cancel"
+                        variant="ghost"
+                        size="sm"
+                        fullWidth={false}
+                        icon="close"
+                        onPress={handleCancelWork}
+                      />
+                    </View>
+                  )}
                 </View>
               )}
 
@@ -587,9 +730,10 @@ export const PairScreen: React.FC<PairScreenProps> = ({ route, navigation }) => 
               {preProcessedVideo && pairingCode && !receiverStorage && (
                 <View style={styles.stage}>
                   <SectionLabel>Step 3 of 3</SectionLabel>
-                  <Text style={styles.stageTitle}>Share this code</Text>
+                  <Text style={styles.stageTitle}>Give them this code</Text>
                   <Text style={styles.stageSubtitle}>
-                    Ask the other device to choose Receive and enter it.
+                    Open Convey on the other phone, tap Receive a video, and type it in. The code
+                    retires the moment it is used.
                   </Text>
 
                   <GlassCard corner="lg" depth={1} style={styles.summaryCard}>
@@ -609,7 +753,7 @@ export const PairScreen: React.FC<PairScreenProps> = ({ route, navigation }) => 
 
                   <View style={styles.waitingRow}>
                     <View style={styles.waitingDot} />
-                    <Text style={styles.waitingText}>Waiting for the receiver…</Text>
+                    <Text style={styles.waitingText}>Waiting for the other phone…</Text>
                   </View>
                 </View>
               )}
@@ -618,9 +762,10 @@ export const PairScreen: React.FC<PairScreenProps> = ({ route, navigation }) => 
               {preProcessedVideo && receiverStorage && (
                 <View style={styles.stage}>
                   <SectionLabel>Almost there</SectionLabel>
-                  <Text style={styles.stageTitle}>Storage check</Text>
+                  <Text style={styles.stageTitle}>Checking their space</Text>
                   <Text style={styles.stageSubtitle}>
-                    The receiver's free space is confirmed before a single byte is sent.
+                    We confirm the other phone has room before a single byte moves, so nothing
+                    dies half-finished.
                   </Text>
 
                   <GlassCard corner="lg" depth={1}>
@@ -689,7 +834,7 @@ export const PairScreen: React.FC<PairScreenProps> = ({ route, navigation }) => 
                   ) : (
                     <GlassCard corner="lg" depth={0} flat>
                       <Text style={styles.blockedText}>
-                        Transfer blocked — the receiver does not have enough free space.
+                        Transfer blocked — the other phone does not have enough free space.
                       </Text>
                     </GlassCard>
                   )}
@@ -741,15 +886,15 @@ export const PairScreen: React.FC<PairScreenProps> = ({ route, navigation }) => 
 
                   <View style={styles.waitingRow}>
                     <View style={styles.waitingDot} />
-                    <Text style={styles.waitingText}>Awaiting transfer initiation…</Text>
+                    <Text style={styles.waitingText}>Waiting for the first chunk…</Text>
                   </View>
                 </View>
               ) : (
                 <View style={styles.stage}>
                   <SectionLabel>Step 1 of 2</SectionLabel>
-                  <Text style={styles.stageTitle}>Enter the code</Text>
+                  <Text style={styles.stageTitle}>Type their code</Text>
                   <Text style={styles.stageSubtitle}>
-                    Type the 6-digit code shown on the sender's screen.
+                    Six digits, straight off the sender's screen. Nothing else to set up.
                   </Text>
 
                   <TextInput
@@ -767,7 +912,7 @@ export const PairScreen: React.FC<PairScreenProps> = ({ route, navigation }) => 
 
                   <GlassCard corner="lg" depth={1}>
                     <View style={styles.storageHeader}>
-                      <Text style={styles.storageTitle}>Your available storage</Text>
+                      <Text style={styles.storageTitle}>Your free space</Text>
                       {localDeviceStorage && (
                         <Pill
                           label={`${localDeviceStorage.freeFormatted} free`}
@@ -796,8 +941,8 @@ export const PairScreen: React.FC<PairScreenProps> = ({ route, navigation }) => 
                     )}
 
                     <Text style={styles.storageExplainer}>
-                      Your free space is shared with the sender so they can confirm the transfer
-                      will fit before starting.
+                      We share your free space with the sender so they can check the video fits
+                      before a single byte moves.
                     </Text>
                   </GlassCard>
 
@@ -974,6 +1119,10 @@ const createStyles = (theme: Theme) => {
     },
     preprocessTrack: {
       marginBottom: spacing.lg,
+    },
+    cancelRow: {
+      alignItems: 'center',
+      marginTop: spacing.lg,
     },
     checklist: {
       gap: spacing.sm,

@@ -16,5 +16,6 @@ export {
   Divider,
   StatusDot,
   ProgressTrack,
+  IndeterminateBar,
   miscStyles,
 } from './Primitives';
