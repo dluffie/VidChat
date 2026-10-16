@@ -1,6 +1,8 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { ProgressBar } from './ProgressBar';
+import { GlassCard, GradientButton, Icon, Pill } from './ui';
+import { radius, spacing, typography, useTheme, Theme } from '../theme';
 import { TransferProgress } from '../types/transfers';
 import { formatBytes } from '../utils/chunking';
 
@@ -13,6 +15,7 @@ interface VideoBubbleProps {
   onViewDetails?: (transferId: string) => void;
 }
 
+/** In-chat card representing a video transfer, in either direction. */
 export const VideoBubble: React.FC<VideoBubbleProps> = ({
   progress,
   isSelf,
@@ -21,28 +24,76 @@ export const VideoBubble: React.FC<VideoBubbleProps> = ({
   onResume,
   onViewDetails,
 }) => {
+  const { theme } = useTheme();
+  const styles = createStyles(theme);
+
   const isComplete = progress.status === 'completed';
   const isFailed = progress.status === 'failed';
   const isPaused = progress.status === 'paused';
-  const isTransferring = progress.status === 'transferring' || progress.status === 'reconstructing' || progress.status === 'verifying';
+  const isTransferring =
+    progress.status === 'transferring' ||
+    progress.status === 'reconstructing' ||
+    progress.status === 'verifying';
 
-  const completedBytes = Math.round((progress.completedChunks / progress.totalChunks) * progress.fileSize);
+  const completedBytes = Math.round(
+    (progress.completedChunks / Math.max(1, progress.totalChunks)) * progress.fileSize
+  );
+
+  const accent = isComplete
+    ? theme.colors.success
+    : isFailed
+      ? theme.colors.danger
+      : isPaused
+        ? theme.colors.warning
+        : theme.colors.accent;
+
+  const statusLabel = isComplete
+    ? 'Complete'
+    : isFailed
+      ? 'Failed'
+      : isPaused
+        ? 'Paused'
+        : progress.status === 'reconstructing'
+          ? 'Assembling'
+          : progress.status === 'verifying'
+            ? 'Verifying'
+            : isSelf
+              ? 'Sending'
+              : 'Receiving';
 
   return (
     <View style={[styles.container, isSelf ? styles.selfContainer : styles.partnerContainer]}>
-      <View style={[styles.card, isSelf ? styles.selfCard : styles.partnerCard]}>
-        {/* Header */}
+      <GlassCard
+        tone="elevated"
+        corner="lg"
+        depth={1}
+        style={styles.card}
+        glowColor={isTransferring || isComplete ? accent : undefined}
+      >
         <View style={styles.header}>
-          <Text style={styles.icon}>🎥</Text>
+          <View style={[styles.iconTile, { backgroundColor: `${accent}22`, borderColor: `${accent}55` }]}>
+            <Icon name={isFailed ? 'alert' : 'film'} size={18} color={accent} />
+          </View>
           <View style={styles.titleContainer}>
             <Text style={styles.fileName} numberOfLines={1}>
               {progress.fileName}
             </Text>
             <Text style={styles.fileSize}>{formatBytes(progress.fileSize)}</Text>
           </View>
+          <Pill
+            label={statusLabel}
+            tone={
+              isComplete
+                ? 'success'
+                : isFailed
+                  ? 'danger'
+                  : isPaused
+                    ? 'warning'
+                    : 'accent'
+            }
+          />
         </View>
 
-        {/* Transfer in progress */}
         {isTransferring && (
           <View style={styles.progressContainer}>
             <ProgressBar
@@ -53,228 +104,198 @@ export const VideoBubble: React.FC<VideoBubbleProps> = ({
               etaSeconds={progress.etaSeconds}
               statusText={
                 progress.status === 'reconstructing'
-                  ? 'Reassembling chunks...'
+                  ? 'Reassembling chunks…'
                   : progress.status === 'verifying'
-                  ? 'Verifying SHA-256...'
-                  : isSelf
-                  ? 'Sending chunks...'
-                  : 'Receiving chunks...'
+                    ? 'Verifying fingerprint…'
+                    : isSelf
+                      ? 'Sending chunks…'
+                      : 'Receiving chunks…'
               }
             />
             {onCancel && (
-              <TouchableOpacity
+              <GradientButton
+                label="Cancel"
+                variant="ghost"
+                size="sm"
+                fullWidth={false}
                 onPress={() => onCancel(progress.transferId)}
                 style={styles.cancelButton}
-              >
-                <Text style={styles.cancelText}>Cancel</Text>
-              </TouchableOpacity>
+              />
             )}
           </View>
         )}
 
-        {/* Transfer Paused */}
         {isPaused && (
-          <View style={styles.statusBox}>
-            <Text style={styles.pausedText}>Transfer Paused</Text>
+          <View style={styles.centeredBox}>
+            <Text style={styles.pausedText}>Transfer paused</Text>
             {onResume && (
-              <TouchableOpacity
+              <GradientButton
+                label="Resume"
+                icon="refresh"
+                size="sm"
                 onPress={() => onResume(progress.transferId)}
-                style={styles.resumeButton}
-              >
-                <Text style={styles.resumeText}>Resume Transfer</Text>
-              </TouchableOpacity>
+              />
             )}
           </View>
         )}
 
-        {/* Verified & Complete */}
         {isComplete && (
           <View style={styles.completeBox}>
             <View style={styles.badgeRow}>
-              <Text style={styles.verifiedBadge}>✓ Verified</Text>
-              <Text style={styles.shaText}>SHA-256 Match</Text>
+              <View style={styles.verifiedRow}>
+                <Icon name="check" size={13} color={theme.colors.success} />
+                <Text style={styles.verifiedBadge}>Verified</Text>
+              </View>
+              <Text style={styles.shaText}>fingerprint match</Text>
             </View>
 
             <View style={styles.actionButtons}>
               {onPlay && progress.localFilePath && (
-                <TouchableOpacity
-                  style={styles.playButton}
+                <GradientButton
+                  label="Play"
+                  icon="play"
+                  size="sm"
                   onPress={() => onPlay(progress.localFilePath!)}
-                >
-                  <Text style={styles.playButtonText}>▶ Play</Text>
-                </TouchableOpacity>
+                  style={styles.actionButton}
+                />
               )}
-
               {onViewDetails && (
-                <TouchableOpacity
-                  style={styles.detailsButton}
+                <GradientButton
+                  label="Details"
+                  variant="subtle"
+                  size="sm"
                   onPress={() => onViewDetails(progress.transferId)}
-                >
-                  <Text style={styles.detailsButtonText}>📊 Metrics</Text>
-                </TouchableOpacity>
+                  style={styles.actionButton}
+                />
               )}
             </View>
           </View>
         )}
 
-        {/* Failed */}
         {isFailed && (
           <View style={styles.failedBox}>
-            <Text style={styles.failedText}>Transfer Failed</Text>
-            {progress.error && <Text style={styles.errorText}>{progress.error}</Text>}
+            <Text style={styles.failedText}>Transfer failed</Text>
+            {progress.error ? (
+              <Text style={styles.errorText} numberOfLines={3}>
+                {progress.error}
+              </Text>
+            ) : null}
           </View>
         )}
-      </View>
+      </GlassCard>
     </View>
   );
 };
 
-const styles = StyleSheet.create({
-  container: {
-    marginVertical: 6,
-    paddingHorizontal: 12,
-    flexDirection: 'row',
-  },
-  selfContainer: {
-    justifyContent: 'flex-end',
-  },
-  partnerContainer: {
-    justifyContent: 'flex-start',
-  },
-  card: {
-    width: 270,
-    borderRadius: 16,
-    padding: 14,
-    borderWidth: 1,
-  },
-  selfCard: {
-    backgroundColor: '#064E3B', // Dark emerald
-    borderColor: '#059669',
-    borderBottomRightRadius: 2,
-  },
-  partnerCard: {
-    backgroundColor: '#1E293B', // Slate
-    borderColor: '#334155',
-    borderBottomLeftRadius: 2,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  icon: {
-    fontSize: 26,
-    marginRight: 10,
-  },
-  titleContainer: {
-    flex: 1,
-  },
-  fileName: {
-    color: '#F8FAFC',
-    fontSize: 15,
-    fontWeight: 'bold',
-  },
-  fileSize: {
-    color: '#94A3B8',
-    fontSize: 12,
-    marginTop: 2,
-  },
-  progressContainer: {
-    marginTop: 4,
-  },
-  cancelButton: {
-    alignSelf: 'flex-end',
-    marginTop: 6,
-    paddingVertical: 4,
-    paddingHorizontal: 10,
-  },
-  cancelText: {
-    color: '#EF4444',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  statusBox: {
-    marginVertical: 8,
-    alignItems: 'center',
-  },
-  pausedText: {
-    color: '#F59E0B',
-    fontSize: 13,
-    fontWeight: '600',
-    marginBottom: 6,
-  },
-  resumeButton: {
-    backgroundColor: '#0284C7',
-    paddingVertical: 6,
-    paddingHorizontal: 14,
-    borderRadius: 8,
-  },
-  resumeText: {
-    color: '#FFFFFF',
-    fontWeight: 'bold',
-    fontSize: 12,
-  },
-  completeBox: {
-    marginTop: 8,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  badgeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 10,
-  },
-  verifiedBadge: {
-    color: '#10B981',
-    fontWeight: 'bold',
-    fontSize: 14,
-  },
-  shaText: {
-    color: '#64748B',
-    fontSize: 11,
-  },
-  actionButtons: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  playButton: {
-    flex: 1,
-    backgroundColor: '#10B981',
-    paddingVertical: 10,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  playButtonText: {
-    color: '#FFFFFF',
-    fontWeight: 'bold',
-    fontSize: 14,
-  },
-  detailsButton: {
-    backgroundColor: '#334155',
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  detailsButtonText: {
-    color: '#94A3B8',
-    fontWeight: '600',
-    fontSize: 13,
-  },
-  failedBox: {
-    marginTop: 8,
-    alignItems: 'center',
-  },
-  failedText: {
-    color: '#EF4444',
-    fontWeight: 'bold',
-  },
-  errorText: {
-    color: '#FCA5A5',
-    fontSize: 11,
-    marginTop: 4,
-    textAlign: 'center',
-  },
-});
+const createStyles = (theme: Theme) => {
+  const c = theme.colors;
+  return StyleSheet.create({
+    container: {
+      marginVertical: spacing.xs + 2,
+      flexDirection: 'row',
+    },
+    selfContainer: {
+      justifyContent: 'flex-end',
+    },
+    partnerContainer: {
+      justifyContent: 'flex-start',
+    },
+    card: {
+      width: '100%',
+      maxWidth: 320,
+    },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginBottom: spacing.md,
+    },
+    iconTile: {
+      width: 36,
+      height: 36,
+      borderRadius: radius.sm,
+      borderWidth: StyleSheet.hairlineWidth,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginRight: spacing.md,
+    },
+    titleContainer: {
+      flex: 1,
+      marginRight: spacing.sm,
+    },
+    fileName: {
+      ...typography.subheading,
+      color: c.textPrimary,
+    },
+    fileSize: {
+      ...typography.caption,
+      color: c.textSecondary,
+      marginTop: 1,
+    },
+    progressContainer: {
+      marginTop: spacing.xs,
+    },
+    cancelButton: {
+      alignSelf: 'flex-end',
+      marginTop: spacing.sm,
+    },
+    centeredBox: {
+      alignItems: 'center',
+      gap: spacing.sm,
+      paddingVertical: spacing.sm,
+    },
+    pausedText: {
+      ...typography.label,
+      color: c.warning,
+    },
+    completeBox: {
+      marginTop: spacing.sm,
+      paddingTop: spacing.md,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: c.divider,
+    },
+    badgeRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: spacing.md,
+    },
+    verifiedRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.xs,
+    },
+    verifiedBadge: {
+      ...typography.label,
+      color: c.success,
+      marginLeft: spacing.xs,
+    },
+    shaText: {
+      ...typography.caption,
+      color: c.textMuted,
+    },
+    actionButtons: {
+      flexDirection: 'row',
+      gap: spacing.sm,
+    },
+    actionButton: {
+      flex: 1,
+    },
+    failedBox: {
+      marginTop: spacing.sm,
+      paddingTop: spacing.md,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: c.divider,
+      alignItems: 'center',
+    },
+    failedText: {
+      ...typography.label,
+      color: c.danger,
+    },
+    errorText: {
+      ...typography.caption,
+      color: c.textSecondary,
+      marginTop: spacing.xs,
+      textAlign: 'center',
+    },
+  });
+};

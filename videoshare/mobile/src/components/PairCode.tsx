@@ -1,5 +1,7 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { hairlineWidth, radius, spacing, typography, useTheme, Theme } from '../theme';
+import { GlassCard, Pill } from './ui';
 
 interface PairCodeProps {
   code: string;
@@ -7,60 +9,114 @@ interface PairCodeProps {
   onCopy?: () => void;
 }
 
+/**
+ * The pairing code, rendered as individual digit tiles so it is easy to read
+ * aloud and hard to mistype on the other device.
+ */
 export const PairCode: React.FC<PairCodeProps> = ({ code, expiresAt, onCopy }) => {
-  const formattedCode = code.length === 6 ? `${code.slice(0, 3)} ${code.slice(3)}` : code;
+  const { theme } = useTheme();
+  const styles = createStyles(theme);
+  const digits = code.split('');
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.label}>Your pairing code:</Text>
-      <TouchableOpacity activeOpacity={0.8} onPress={onCopy} style={styles.codeBox}>
-        <Text style={styles.codeText}>{formattedCode}</Text>
-      </TouchableOpacity>
-      <Text style={styles.hint}>Waiting for second device...</Text>
-      <Text style={styles.expiry}>Valid for 10 minutes</Text>
-    </View>
+    <GlassCard tone="elevated" corner="xl" depth={2}>
+      <View style={styles.header}>
+        <Text style={styles.label}>Your pairing code</Text>
+        <Pill label="10 min" icon="clock" tone="accent" />
+      </View>
+
+      <Pressable
+        onPress={onCopy}
+        accessibilityRole="button"
+        accessibilityLabel={`Copy pairing code ${code}`}
+        style={({ pressed }) => [styles.codeRow, { opacity: pressed ? 0.75 : 1 }]}
+      >
+        {digits.map((digit, index) => (
+          <View
+            key={`${digit}-${index}`}
+            style={[
+              styles.digitBox,
+              index === 3 ? { marginLeft: spacing.md } : null,
+            ]}
+          >
+            <Text style={styles.digitText}>{digit}</Text>
+          </View>
+        ))}
+      </Pressable>
+
+      <View style={styles.hintRow}>
+        <View style={styles.pulse} />
+        <Text style={styles.hint}>Waiting for the second device…</Text>
+      </View>
+      <Text style={styles.tapHint}>Tap the code to copy it</Text>
+      {expiresAt ? <Text style={styles.expiry}>Expires {new Date(expiresAt).toLocaleTimeString()}</Text> : null}
+    </GlassCard>
   );
 };
 
-const styles = StyleSheet.create({
-  container: {
-    alignItems: 'center',
-    marginVertical: 24,
-    padding: 24,
-    backgroundColor: '#1E293B',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#334155',
-  },
-  label: {
-    color: '#94A3B8',
-    fontSize: 16,
-    fontWeight: '500',
-    marginBottom: 12,
-  },
-  codeBox: {
-    backgroundColor: '#0F172A',
-    paddingVertical: 14,
-    paddingHorizontal: 28,
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: '#38BDF8',
-    marginBottom: 14,
-  },
-  codeText: {
-    color: '#F8FAFC',
-    fontSize: 36,
-    fontWeight: 'bold',
-    letterSpacing: 4,
-  },
-  hint: {
-    color: '#38BDF8',
-    fontSize: 14,
-    fontWeight: '600',
-    marginBottom: 4,
-  },
-  expiry: {
-    color: '#64748B',
-    fontSize: 12,
-  },
-});
+const createStyles = (theme: Theme) => {
+  const c = theme.colors;
+  return StyleSheet.create({
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: spacing.lg,
+    },
+    label: {
+      ...typography.overline,
+      color: c.textMuted,
+    },
+    codeRow: {
+      flexDirection: 'row',
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginBottom: spacing.lg,
+    },
+    digitBox: {
+      width: 42,
+      height: 52,
+      marginHorizontal: 3,
+      borderRadius: radius.sm,
+      borderWidth: hairlineWidth,
+      borderColor: c.surfaceBorder,
+      backgroundColor: c.inputBg,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    digitText: {
+      ...typography.title,
+      fontSize: 26,
+      color: c.textPrimary,
+    },
+    hintRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    pulse: {
+      width: 7,
+      height: 7,
+      borderRadius: 4,
+      backgroundColor: c.accentAlt,
+      marginRight: spacing.sm,
+    },
+    hint: {
+      ...typography.bodySmall,
+      color: c.accentAlt,
+      fontWeight: '600',
+    },
+    tapHint: {
+      ...typography.caption,
+      color: c.textMuted,
+      textAlign: 'center',
+      marginTop: spacing.xs,
+    },
+    expiry: {
+      ...typography.caption,
+      color: c.textMuted,
+      textAlign: 'center',
+      marginTop: spacing.sm,
+    },
+  });
+};

@@ -13,3 +13,17 @@ files in place (keeping the names and dimensions) with real artwork when availab
 
 For local Expo Go development these are not strictly required, but they are needed
 for EAS Build and for native `expo run:*` builds.
+
+## Brand note
+
+The app is named **Convey** (`expo.name` in [`app.json`](../app.json)). The artwork
+here is still placeholder: the committed PNGs are flat-colour squares generated at
+build time, not real icon designs. Replace `icon.png` and `adaptive-icon.png` with
+real Convey artwork before any public release.
+
+## Theming note
+
+`app.json` sets `expo.userInterfaceStyle` to `"automatic"` so the **System** theme
+option can follow the device's light/dark setting. The splash and adaptive-icon
+backgrounds (`#0A0F1D`) match the Aurora Dark canvas; the in-app appearance picker
+covers the other themes (Aurora Light, Claude Warm, Midnight).

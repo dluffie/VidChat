@@ -4,20 +4,23 @@ import { base64ToUint8Array } from '../utils/encoding';
 
 const YIELD_EVERY_CHUNKS = 64;
 
+/** On-device storage root. Internal only — never shown to the user. */
+const APP_DIR = 'Convey';
+
 export class FileSystemService {
   private static get basePath(): string {
     const docDir = FileSystem.documentDirectory || '';
-    return docDir.endsWith('/') ? `${docDir}VideoShare/transfers/` : `${docDir}/VideoShare/transfers/`;
+    return docDir.endsWith('/') ? `${docDir}${APP_DIR}/transfers/` : `${docDir}/${APP_DIR}/transfers/`;
   }
 
   private static get downloadPath(): string {
     const docDir = FileSystem.documentDirectory || '';
-    return docDir.endsWith('/') ? `${docDir}VideoShare/downloads/` : `${docDir}/VideoShare/downloads/`;
+    return docDir.endsWith('/') ? `${docDir}${APP_DIR}/downloads/` : `${docDir}/${APP_DIR}/downloads/`;
   }
 
   private static get stagingPath(): string {
     const cacheDir = FileSystem.cacheDirectory || '';
-    return cacheDir.endsWith('/') ? `${cacheDir}VideoShare/` : `${cacheDir}/VideoShare/`;
+    return cacheDir.endsWith('/') ? `${cacheDir}${APP_DIR}/` : `${cacheDir}/${APP_DIR}/`;
   }
 
   private static getTransferDir(transferId: string): string {

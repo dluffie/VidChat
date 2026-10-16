@@ -24,6 +24,8 @@ interface ClientConnection {
   deviceId: string;
   sessionId?: string;
   isAlive: boolean;
+  /** Last time this socket delivered a frame, used to spare busy connections. */
+  lastActivityAt: number;
 }
 
 export class WebSocketManager {
@@ -309,10 +311,14 @@ export class WebSocketManager {
                 });
               } catch (err: any) {
                 console.error('[WS] Failed to register transfer:', err?.message || err);
+                // A database blip must not end the user's transfer. Mark it
+                // retryable and let the sender re-announce.
                 this.safeSend(ws, {
                   action: 'video:error',
                   transferId: parsed.transferId,
                   error: `Could not register transfer: ${err?.message || 'database error'}`,
+                  code: 'REGISTER_FAILED',
+                  fatal: false,
                 });
                 return;
               }
@@ -341,10 +347,14 @@ export class WebSocketManager {
                   checksum: parsed.checksum,
                 });
               } else {
+                // Retryable: the receiver's socket is not up yet (still pairing,
+                // or reconnecting). The sender keeps the transfer armed.
                 this.safeSend(ws, {
                   action: 'video:error',
                   transferId: parsed.transferId,
-                  error: 'Partner is currently offline. Transfer paused.',
+                  error: 'Partner is currently offline. Waiting for it to return.',
+                  code: 'PEER_OFFLINE',
+                  fatal: false,
                 });
               }
               break;
@@ -355,7 +365,15 @@ export class WebSocketManager {
               // Hot path: resolved from the in-memory cache, no DB round-trip.
               const transfer = await this.resolveTransfer(parsed.transferId);
               if (!transfer) {
-                this.safeSend(ws, { action: 'video:error', transferId: parsed.transferId, error: 'Transfer not found' });
+                // The server may have restarted (or been redeployed) since the
+                // handshake. That is recoverable: the sender replays video:start.
+                this.safeSend(ws, {
+                  action: 'video:error',
+                  transferId: parsed.transferId,
+                  error: 'Transfer not found',
+                  code: 'TRANSFER_NOT_FOUND',
+                  fatal: false,
+                });
                 return;
               }
 
@@ -371,12 +389,12 @@ export class WebSocketManager {
                   hash: parsed.hash,
                 });
               } else {
-                // Partner disconnected mid-transfer
-                this.safeSend(ws, {
-                  action: 'video:error',
-                  transferId: parsed.transferId,
-                  error: 'Partner disconnected during chunk transfer',
-                });
+                // The receiver is momentarily unreachable (reconnecting, or its
+                // socket is being replaced). Deliberately silent: an error per
+                // dropped chunk would flood a 2G uplink and turn a brief blip into
+                // a failed transfer. The sender's stall watchdog notices, backs
+                // off, and the receiver re-requests whatever it missed once it is
+                // back — exactly what TCP would do.
               }
               break;
             }
@@ -497,6 +515,13 @@ export class WebSocketManager {
       // processed first and rejected with "Transfer not found".
       let messageQueue: Promise<void> = Promise.resolve();
       ws.on('message', (data: Buffer | string) => {
+        // Record liveness before queueing: on a congested link the queue can take
+        // a while to drain and the heartbeat must not mistake that for a dead
+        // socket and kill a transfer that is still making progress.
+        if (clientDeviceId) {
+          const conn = this.clients.get(clientDeviceId);
+          if (conn) conn.lastActivityAt = Date.now();
+        }
         messageQueue = messageQueue.then(() => processMessage(data));
       });
 
@@ -511,10 +536,24 @@ export class WebSocketManager {
       });
     });
 
-    // Start 30-second heartbeat to detect dead connections
+    // Heartbeat. Ping every 30 s to spot genuinely dead sockets, but never tear
+    // down a connection that has delivered a frame recently: a phone pushing a
+    // multi-gigabyte transfer over 2G can easily take longer than one ping
+    // interval to return the pong, and killing it there aborts a healthy
+    // transfer. Only a connection that is both unanswered *and* completely silent
+    // for two minutes is considered dead.
+    const HEARTBEAT_INTERVAL_MS = 30000;
+    const HEARTBEAT_DEAD_MS = 120000;
+
     this.heartbeatInterval = setInterval(() => {
+      const now = Date.now();
       for (const [deviceId, conn] of this.clients.entries()) {
         if (!conn.isAlive) {
+          if (now - conn.lastActivityAt < HEARTBEAT_DEAD_MS) {
+            // Still sending data — the pong is simply in transit.
+            conn.isAlive = true;
+            continue;
+          }
           conn.ws.terminate();
           this.handleDisconnect(deviceId);
           continue;
@@ -553,10 +592,12 @@ export class WebSocketManager {
     }
   }
 
-  private registerClient(ws: WebSocket, deviceId: string) {    this.clients.set(deviceId, {
+  private registerClient(ws: WebSocket, deviceId: string) {
+    this.clients.set(deviceId, {
       ws,
       deviceId,
       isAlive: true,
+      lastActivityAt: Date.now(),
     });
   }
 

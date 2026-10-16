@@ -1,14 +1,15 @@
 {
   "expo": {
-    "name": "VideoShare",
+    "name": "Convey",
     "slug": "videoshare",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "dark",
+    "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.videoshare.app"
+      "bundleIdentifier": "com.videoshare.app",
+      "buildNumber": "2"
     },
     "android": {
       "adaptiveIcon": {
@@ -16,6 +17,8 @@
         "backgroundColor": "#0A0F1D"
       },
       "package": "com.videoshare.app",
+      "versionCode": 2,
+      "softwareKeyboardLayoutMode": "resize",
       "permissions": [
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.WRITE_EXTERNAL_STORAGE",
@@ -44,7 +47,7 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Allow VideoShare to access your videos to select and transfer them."
+          "photosPermission": "Allow Convey to access your videos to select and transfer them."
         }
       ],
       [

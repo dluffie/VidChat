@@ -1,5 +1,7 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
+import { hairlineWidth, radius, spacing, typography, useTheme, Theme } from '../theme';
+import { Icon } from './ui';
 import { ChatMessage } from '../types/messages';
 
 interface ChatBubbleProps {
@@ -7,24 +9,53 @@ interface ChatBubbleProps {
   isSelf: boolean;
 }
 
+/**
+ * Chat message in the glass language: a tinted, hairline-bordered pane with a
+ * squared-off corner pointing at its author.
+ */
 export const ChatBubble: React.FC<ChatBubbleProps> = ({ message, isSelf }) => {
+  const { theme } = useTheme();
+  const styles = createStyles(theme);
+
   const formatTime = (ts: number | string) => {
     const date = new Date(ts);
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
+  /** Delivery state, drawn with icons so it never depends on a font glyph. */
   const renderStatus = () => {
     if (!isSelf) return null;
 
+    const muted = theme.colors.textMuted;
+    const read = theme.colors.accentAlt;
+
     switch (message.status) {
       case 'SENDING':
-        return <Text style={styles.statusIcon}>🕒</Text>;
+        return (
+          <View style={styles.statusRow}>
+            <Icon name="clock" size={11} color={muted} weight={1.2} />
+          </View>
+        );
       case 'SENT':
-        return <Text style={styles.statusIcon}>✓</Text>;
+        return (
+          <View style={styles.statusRow}>
+            <Icon name="check" size={11} color={muted} weight={1.6} />
+          </View>
+        );
       case 'DELIVERED':
-        return <Text style={styles.statusIcon}>✓✓</Text>;
+        return (
+          <View style={styles.statusRow}>
+            <Icon name="check" size={11} color={muted} weight={1.6} style={styles.secondTick} />
+            <Icon name="check" size={11} color={muted} weight={1.6} />
+          </View>
+        );
       case 'READ':
-        return <Text style={[styles.statusIcon, styles.readStatus]}>✓✓</Text>;
+        return (
+          <View style={styles.statusRow}>
+            <Icon name="check" size={11} color={read} weight={1.8} style={styles.secondTick} />
+            <Icon name="check" size={11} color={read} weight={1.8} />
+          </View>
+        );
       default:
         return null;
     }
@@ -33,13 +64,11 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({ message, isSelf }) => {
   return (
     <View style={[styles.container, isSelf ? styles.selfContainer : styles.partnerContainer]}>
       <View style={[styles.bubble, isSelf ? styles.selfBubble : styles.partnerBubble]}>
-        <Text style={[styles.messageText, isSelf ? styles.selfText : styles.partnerText]}>
+        <Text style={[styles.messageText, { color: theme.colors.textPrimary }]}>
           {message.text}
         </Text>
         <View style={styles.footer}>
-          <Text style={[styles.timeText, isSelf ? styles.selfTimeText : styles.partnerTimeText]}>
-            {formatTime(message.timestamp)}
-          </Text>
+          <Text style={styles.timeText}>{formatTime(message.timestamp)}</Text>
           {renderStatus()}
         </View>
       </View>
@@ -47,70 +76,61 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({ message, isSelf }) => {
   );
 };
 
-const styles = StyleSheet.create({
-  container: {
-    marginVertical: 4,
-    paddingHorizontal: 12,
-    flexDirection: 'row',
-  },
-  selfContainer: {
-    justifyContent: 'flex-end',
-  },
-  partnerContainer: {
-    justifyContent: 'flex-start',
-  },
-  bubble: {
-    maxWidth: '78%',
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingTop: 10,
-    paddingBottom: 6,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 1,
-  },
-  selfBubble: {
-    backgroundColor: '#059669', // Emerald/WhatsApp dark outgoing
-    borderBottomRightRadius: 2,
-  },
-  partnerBubble: {
-    backgroundColor: '#1E293B', // Dark slate incoming
-    borderBottomLeftRadius: 2,
-  },
-  messageText: {
-    fontSize: 15,
-    lineHeight: 20,
-  },
-  selfText: {
-    color: '#FFFFFF',
-  },
-  partnerText: {
-    color: '#F1F5F9',
-  },
-  footer: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    alignItems: 'center',
-    marginTop: 4,
-  },
-  timeText: {
-    fontSize: 10,
-    marginRight: 4,
-  },
-  selfTimeText: {
-    color: '#A7F3D0',
-  },
-  partnerTimeText: {
-    color: '#94A3B8',
-  },
-  statusIcon: {
-    fontSize: 11,
-    color: '#A7F3D0',
-  },
-  readStatus: {
-    color: '#38BDF8', // Read blue ticks
-    fontWeight: 'bold',
-  },
-});
+const createStyles = (theme: Theme) => {
+  const c = theme.colors;
+  return StyleSheet.create({
+    container: {
+      marginVertical: spacing.xs + 1,
+      flexDirection: 'row',
+    },
+    selfContainer: {
+      justifyContent: 'flex-end',
+      paddingLeft: spacing.xxxl,
+    },
+    partnerContainer: {
+      justifyContent: 'flex-start',
+      paddingRight: spacing.xxxl,
+    },
+    bubble: {
+      maxWidth: '100%',
+      borderRadius: radius.lg,
+      borderWidth: hairlineWidth,
+      paddingHorizontal: spacing.lg,
+      paddingTop: spacing.md,
+      paddingBottom: spacing.sm,
+      overflow: 'hidden',
+    },
+    selfBubble: {
+      backgroundColor: c.bubbleOut,
+      borderColor: c.bubbleOutBorder,
+      borderBottomRightRadius: radius.xs,
+    },
+    partnerBubble: {
+      backgroundColor: c.bubbleIn,
+      borderColor: c.bubbleInBorder,
+      borderBottomLeftRadius: radius.xs,
+    },
+    messageText: {
+      ...typography.body,
+    },
+    footer: {
+      flexDirection: 'row',
+      justifyContent: 'flex-end',
+      alignItems: 'center',
+      marginTop: spacing.xs,
+    },
+    timeText: {
+      ...typography.caption,
+      fontSize: 10,
+      color: c.textMuted,
+      marginRight: spacing.xs + 1,
+    },
+    statusRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    secondTick: {
+      marginRight: -4,
+    },
+  });
+};

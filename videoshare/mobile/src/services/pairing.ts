@@ -7,6 +7,12 @@ import { PairingState, PairCreateResponse, PairSuccessResponse } from '../types/
 // is never called at module-load time (before the crypto polyfill is applied).
 let _deviceId: string | null = null;
 
+/**
+ * Pairing round-trips are user-visible waits, so they get a generous allowance:
+ * a GPRS link can easily need 10-20 s to complete the create/join handshake.
+ */
+const PAIRING_TIMEOUT_MS = 45000;
+
 function getOrCreateDeviceId(): string {
   if (!_deviceId) {
     _deviceId = uuidv4();
@@ -28,6 +34,7 @@ let localPairingCache: PairingState = {
 export class PairingService {
   private static ws = WebSocketClient.getInstance();
   private static pairSuccessListenerActive = false;
+  private static reconnectAuthActive = false;
 
   static getDeviceId(): string {
     return localPairingCache.deviceId;
@@ -70,6 +77,25 @@ export class PairingService {
   }
 
   /**
+   * Re-register an established session whenever the socket comes back.
+   *
+   * The server only knows which socket belongs to which device after it has
+   * seen a `pair:create`, `pair:join` or `auth` on *that* socket. Without this,
+   * a single dropped connection would leave both peers online but unroutable,
+   * and a running transfer would stall forever with no error.
+   */
+  static initReconnectAuth() {
+    if (this.reconnectAuthActive) return;
+    this.reconnectAuthActive = true;
+
+    this.ws.on('connection:change', (data: { status: string }) => {
+      if (data.status === 'connected') {
+        this.authenticateActiveSession();
+      }
+    });
+  }
+
+  /**
    * Device A requests pairing code creation
    */
   static async createPair(): Promise<PairCreateResponse> {
@@ -78,7 +104,7 @@ export class PairingService {
         this.ws.off('pair:created', onCreated);
         this.ws.off('error', onError);
         reject(new Error('Pairing code creation timed out'));
-      }, 10000);
+      }, PAIRING_TIMEOUT_MS);
 
       const onCreated = (res: PairCreateResponse) => {
         clearTimeout(timeout);
@@ -120,7 +146,7 @@ export class PairingService {
         this.ws.off('pair:success', onSuccess);
         this.ws.off('error', onError);
         reject(new Error('Joining pair timed out'));
-      }, 10000);
+      }, PAIRING_TIMEOUT_MS);
 
       const onSuccess = (res: PairSuccessResponse) => {
         clearTimeout(timeout);

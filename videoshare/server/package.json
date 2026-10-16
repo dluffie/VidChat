@@ -1,7 +1,7 @@
 {
   "name": "videoshare-server",
-  "version": "1.0.0",
-  "description": "VideoShare backend communication server for paired devices",
+  "version": "1.1.0",
+  "description": "Convey backend communication server for paired devices",
   "main": "dist/server.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",

@@ -6,7 +6,7 @@ import { config } from './config/index.js';
 import { WebSocketManager } from './websocket/wsManager.js';
 
 async function bootstrap() {
-  console.log(`[Server] Starting VideoShare Backend Server...`);
+  console.log(`[Server] Starting Convey Backend Server...`);
   console.log(`[Server] Environment: ${config.nodeEnv}`);
 
   // Connect to MongoDB

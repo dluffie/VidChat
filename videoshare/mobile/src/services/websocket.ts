@@ -2,6 +2,36 @@ import { WS_URL } from './api';
 
 type Listener = (payload: any) => void;
 
+/**
+ * A ping every 15 s keeps NAT mappings alive on mobile carriers and gives a
+ * fresh round-trip-time sample. On 2G that is ~30 bytes of traffic — noise
+ * compared to a single chunk.
+ */
+const HEARTBEAT_INTERVAL_MS = 15000;
+/** Missed pings before the socket is considered dead and rebuilt. */
+const PONG_TIMEOUT_MS = 45000;
+/** Backoff between reconnect attempts. Deliberately never gives up. */
+const BACKOFF_BASE_MS = 1000;
+const BACKOFF_MAX_MS = 15000;
+/** Cap on buffered non-chunk messages while offline. */
+const MAX_QUEUED_MESSAGES = 300;
+
+export interface ConnectionChange {
+  status: 'connected' | 'disconnected';
+  roundTripMs: number;
+  /** False on the very first connect, true on every reconnect. */
+  reconnected: boolean;
+}
+
+/**
+ * Resilient WebSocket client.
+ *
+ * Transfers can legitimately run for tens of minutes on a poor mobile link, so
+ * this client never permanently stops reconnecting, measures how slow the link
+ * actually is, and tears down sockets that have silently died (a very common
+ * failure on 2G/3G, where a half-open socket stops delivering data without ever
+ * firing `onclose`).
+ */
 export class WebSocketClient {
   private static instance: WebSocketClient;
   private ws: WebSocket | null = null;
@@ -9,10 +39,17 @@ export class WebSocketClient {
   private listeners: Map<string, Set<Listener>> = new Map();
   private reconnectTimer: any = null;
   private heartbeatTimer: any = null;
+  private pongWatchdogTimer: any = null;
   private isConnecting: boolean = false;
   private pendingQueue: any[] = [];
   private reconnectAttempts: number = 0;
-  private readonly MAX_RECONNECT_ATTEMPTS = 10;
+  private everConnected: boolean = false;
+  /** Set when the caller explicitly disconnects, to stop the reconnect loop. */
+  private manualClose: boolean = false;
+
+  private lastPingAt: number = 0;
+  private lastPongAt: number = 0;
+  private roundTripMs: number = 0;
 
   private constructor() {}
 
@@ -27,8 +64,18 @@ export class WebSocketClient {
     this.url = url;
   }
 
+  /** Latest measured round-trip time in ms (0 until the first pong arrives). */
+  getRoundTripMs(): number {
+    return this.roundTripMs;
+  }
+
   connect(onOpenCallback?: () => void) {
-    if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
+    this.manualClose = false;
+
+    if (
+      this.ws &&
+      (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)
+    ) {
       return;
     }
 
@@ -38,20 +85,30 @@ export class WebSocketClient {
 
       this.ws.onopen = () => {
         this.isConnecting = false;
-        this.reconnectAttempts = 0; // reset on successful connection
+        const wasConnectedBefore = this.everConnected;
+        this.everConnected = true;
+        this.reconnectAttempts = 0;
+        this.lastPongAt = Date.now();
+
         if (this.reconnectTimer) {
           clearTimeout(this.reconnectTimer);
           this.reconnectTimer = null;
         }
 
         this.startHeartbeat();
-        this.dispatch('connection:change', { status: 'connected' });
 
-        // Flush queued messages
-        while (this.pendingQueue.length > 0) {
-          const item = this.pendingQueue.shift();
+        // Flush buffered non-video messages (acks, auth, completion notices).
+        const queued = this.pendingQueue;
+        this.pendingQueue = [];
+        for (const item of queued) {
           this.send(item);
         }
+
+        this.dispatch('connection:change', {
+          status: 'connected',
+          roundTripMs: this.roundTripMs,
+          reconnected: wasConnectedBefore,
+        } satisfies ConnectionChange);
 
         if (onOpenCallback) onOpenCallback();
       };
@@ -60,6 +117,17 @@ export class WebSocketClient {
         try {
           const data = JSON.parse(event.data);
           const action = data.action;
+
+          if (action === 'pong') {
+            this.lastPongAt = Date.now();
+            if (this.lastPingAt > 0) {
+              // Smooth the estimate so one unlucky sample cannot skew timeouts.
+              const sample = this.lastPongAt - this.lastPingAt;
+              this.roundTripMs =
+                this.roundTripMs === 0 ? sample : Math.round(this.roundTripMs * 0.6 + sample * 0.4);
+            }
+          }
+
           if (action) {
             this.dispatch(action, data);
           }
@@ -71,11 +139,16 @@ export class WebSocketClient {
 
       this.ws.onclose = () => {
         this.stopHeartbeat();
-        this.dispatch('connection:change', { status: 'disconnected' });
+        this.dispatch('connection:change', {
+          status: 'disconnected',
+          roundTripMs: this.roundTripMs,
+          reconnected: false,
+        } satisfies ConnectionChange);
         this.scheduleReconnect();
       };
 
       this.ws.onerror = (error) => {
+        // `onclose` always follows, which is where the reconnect is scheduled.
         console.warn('WebSocket error:', error);
         this.dispatch('connection:error', error);
       };
@@ -85,23 +158,43 @@ export class WebSocketClient {
     }
   }
 
+  /**
+   * Reconnect forever with a capped exponential backoff. An in-flight transfer
+   * may run for the better part of an hour on a bad link, so giving up after a
+   * fixed number of attempts (the previous behaviour) guaranteed failure.
+   */
   private scheduleReconnect() {
-    if (!this.reconnectTimer && this.reconnectAttempts < this.MAX_RECONNECT_ATTEMPTS) {
-      this.reconnectAttempts++;
-      // Exponential backoff: 3s, 6s, 12s... capped at 30s
-      const delay = Math.min(3000 * Math.pow(1.5, this.reconnectAttempts - 1), 30000);
-      this.reconnectTimer = setTimeout(() => {
-        this.reconnectTimer = null;
-        this.connect();
-      }, delay);
-    }
+    if (this.manualClose || this.reconnectTimer) return;
+
+    this.reconnectAttempts++;
+    const delay = Math.min(
+      BACKOFF_BASE_MS * Math.pow(1.6, Math.min(this.reconnectAttempts - 1, 8)),
+      BACKOFF_MAX_MS
+    );
+
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      this.connect();
+    }, delay);
   }
 
   private startHeartbeat() {
     this.stopHeartbeat();
+    this.lastPongAt = Date.now();
+
     this.heartbeatTimer = setInterval(() => {
+      this.lastPingAt = Date.now();
       this.send({ action: 'ping' });
-    }, 25000);
+    }, HEARTBEAT_INTERVAL_MS);
+
+    // A half-open socket never fires `onclose`, so watch for missing pongs and
+    // rebuild the connection ourselves.
+    this.pongWatchdogTimer = setInterval(() => {
+      if (Date.now() - this.lastPongAt > PONG_TIMEOUT_MS) {
+        console.warn('[WS] No pong received — rebuilding stale connection');
+        this.forceReconnect();
+      }
+    }, HEARTBEAT_INTERVAL_MS);
   }
 
   private stopHeartbeat() {
@@ -109,19 +202,48 @@ export class WebSocketClient {
       clearInterval(this.heartbeatTimer);
       this.heartbeatTimer = null;
     }
+    if (this.pongWatchdogTimer) {
+      clearInterval(this.pongWatchdogTimer);
+      this.pongWatchdogTimer = null;
+    }
+  }
+
+  /**
+   * Tear down the current socket and reconnect immediately. Safe to call from
+   * anywhere (e.g. a transfer watchdog that just had a send fail).
+   */
+  forceReconnect() {
+    this.stopHeartbeat();
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    const socket = this.ws;
+    this.ws = null;
+    try {
+      socket?.close();
+    } catch {
+      // already gone
+    }
+    this.reconnectAttempts = 0;
+    this.connect();
   }
 
   send(data: any): boolean {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(data));
       return true;
-    } else {
-      // Queue for re-transmission if normal message (avoid queueing raw video chunks to save RAM)
-      if (data.action !== 'video:chunk') {
-        this.pendingQueue.push(data);
-      }
-      return false;
     }
+
+    // Video chunks are never queued: they are far too large to buffer and the
+    // receiver can always re-request what it missed.
+    if (data.action !== 'video:chunk') {
+      if (this.pendingQueue.length >= MAX_QUEUED_MESSAGES) {
+        this.pendingQueue.shift();
+      }
+      this.pendingQueue.push(data);
+    }
+    return false;
   }
 
   on(action: string, callback: Listener) {
@@ -150,6 +272,7 @@ export class WebSocketClient {
   }
 
   disconnect() {
+    this.manualClose = true;
     this.stopHeartbeat();
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);

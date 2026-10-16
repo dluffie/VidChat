@@ -6,6 +6,24 @@ import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { VideoTransferService } from '../src/services/videoTransfer';
 import { PairingService } from '../src/services/pairing';
+import { ThemeProvider, useTheme } from '../src/theme';
+
+function ThemedNavigation() {
+  const { isDark, theme } = useTheme();
+
+  return (
+    <>
+      <StatusBar style={isDark ? 'light' : 'dark'} />
+      <Stack
+        screenOptions={{
+          headerShown: false,
+          contentStyle: { backgroundColor: theme.colors.background },
+          animation: 'slide_from_right',
+        }}
+      />
+    </>
+  );
+}
 
 export default function RootLayout() {
   // Register WebSocket listeners once, at app start. The receiving side must be
@@ -15,18 +33,14 @@ export default function RootLayout() {
   useEffect(() => {
     VideoTransferService.init();
     PairingService.initPairSuccessListener();
+    PairingService.initReconnectAuth();
   }, []);
 
   return (
     <SafeAreaProvider>
-      <StatusBar style="light" />
-      <Stack
-        screenOptions={{
-          headerShown: false,
-          contentStyle: { backgroundColor: '#0F172A' },
-          animation: 'slide_from_right',
-        }}
-      />
+      <ThemeProvider>
+        <ThemedNavigation />
+      </ThemeProvider>
     </SafeAreaProvider>
   );
 }
